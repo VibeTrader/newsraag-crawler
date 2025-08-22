@@ -1,8 +1,10 @@
 from uuid import uuid4 as uuid
-from constants import OUTPUT_DIR
 import os
 from datetime import datetime, timezone
 from .time_utils import get_current_pst_time # Import PST utility
+
+# Define OUTPUT_DIR locally to avoid import issues
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 
 def get_output_dir(filename: str) -> str:
     """Get the full path for a file in the current PST date's directory."""
