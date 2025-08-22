@@ -1,0 +1,32 @@
+# Crawler-only requirements (lightweight)
+# RSS parsing and data processing
+
+# Core dependencies
+python-dotenv==1.0.1
+loguru
+
+# RSS parsing (replaces crawl4ai)
+feedparser==6.0.10
+
+# HTTP and parsing
+requests==2.31.0
+beautifulsoup4==4.13.3
+lxml==5.1.0
+
+# Configuration and utilities
+pyyaml>=6.0.2
+
+# Database and storage
+qdrant-client==1.9.0
+redis==5.0.7
+azure-storage-blob==12.25.1
+
+# Date and time
+pytz==2024.1
+
+# JSON and data handling
+pydantic==2.11.3
+
+# Async support
+aiohttp==3.11.16
+asyncio

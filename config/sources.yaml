@@ -1,0 +1,20 @@
+sources:
+  - name: babypips
+    type: rss # Indicates the type of source/crawler needed
+    url: https://www.babypips.com/feed.rss
+    # Add other potential parameters specific to this source/type later
+    # e.g., css_selector: ".full-post" 
+  - name: fxstreet
+    type: rss
+    url: https://www.fxstreet.com/rss/news
+  - name: forexlive
+    type: rss
+    url: https://www.forexlive.com/feed/
+# Add Kabutan and PoundSterlingLive later when implemented
+  - name: kabutan
+    type: html
+    url: https://kabutan.jp/news/marketnews/
+    translate: true # Optional: defaults to true in crawler
+#  - name: poundsterlinglive
+#    type: html
+#    url: https://www.poundsterlinglive.com/markets 
