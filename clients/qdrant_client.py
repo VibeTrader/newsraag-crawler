@@ -7,7 +7,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
 
 # Load environment variables
 load_dotenv()
@@ -38,8 +38,28 @@ class QdrantClientWrapper:
             timeout=30.0
         )
         
-        # Initialize embedding model
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Initialize Azure OpenAI client for embeddings
+        self.openai_client = None
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.openai_endpoint = os.getenv("OPENAI_BASE_URL", "https://vibetrader-llm-rag.cognitiveservices.azure.com/")
+        self.openai_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "embedding-stocks")
+        self.openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+        
+        if self.openai_api_key:
+            try:
+                from openai import AzureOpenAI
+                
+                self.openai_client = AzureOpenAI(
+                    api_version=self.openai_api_version,
+                    azure_endpoint=self.openai_endpoint,
+                    api_key=self.openai_api_key
+                )
+                logger.info(f"Azure OpenAI client initialized for embeddings using deployment: {self.openai_deployment}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Azure OpenAI client: {e}")
+                self.openai_client = None
+        else:
+            logger.warning("OPENAI_API_KEY not set. Embedding generation will fail.")
         
         logger.info(f"QdrantClient initialized for URL: {self.url}")
         logger.info(f"Using collection: {self.collection_name}")
@@ -61,7 +81,7 @@ class QdrantClientWrapper:
                 self.client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config=models.VectorParams(
-                        size=384,  # all-MiniLM-L6-v2 embedding size
+                        size=3072,  # text-embedding-3-large embedding size
                         distance=models.Distance.COSINE
                     )
                 )
@@ -115,8 +135,16 @@ class QdrantClientWrapper:
             Dictionary with status and document ID, or None on failure.
         """
         try:
-            # Generate embedding
-            embedding = self.embedding_model.encode(text_content)
+            # Generate embedding using Azure OpenAI
+            if not self.openai_client:
+                logger.error("Azure OpenAI client not initialized. Cannot generate embeddings.")
+                return None
+                
+            response = self.openai_client.embeddings.create(
+                model=self.openai_deployment,
+                input=text_content
+            )
+            embedding = response.data[0].embedding
             
             # Prepare payload
             payload = {
@@ -167,8 +195,16 @@ class QdrantClientWrapper:
             List of matching documents with scores, or None on failure.
         """
         try:
-            # Generate query embedding
-            query_embedding = self.embedding_model.encode(query)
+            # Generate query embedding using Azure OpenAI
+            if not self.openai_client:
+                logger.error("Azure OpenAI client not initialized. Cannot generate embeddings.")
+                return None
+                
+            response = self.openai_client.embeddings.create(
+                model=self.openai_deployment,
+                input=query
+            )
+            query_embedding = response.data[0].embedding
             
             # Search in collection
             search_results = self.client.search(
