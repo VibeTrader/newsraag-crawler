@@ -19,6 +19,10 @@ from utils.time_utils import convert_to_pst, get_current_pst_time
 from utils.dir_utils import generate_id, get_timestamp
 from models.output import OutputModel
 
+# Import for content extraction
+import aiohttp
+from bs4 import BeautifulSoup
+
 # Define path to config
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
@@ -47,7 +51,7 @@ def load_sources_config(config_path: str) -> list:
         return []
 
 async def crawl_rss_feed(source_name: str, rss_url: str) -> List[Dict[str, Any]]:
-    """Crawl RSS feed and extract full article content."""
+    """Crawl RSS feed and extract full article content using requests and BeautifulSoup."""
     logger.info(f"Crawling RSS feed: {source_name} from {rss_url}")
     
     try:
@@ -61,71 +65,54 @@ async def crawl_rss_feed(source_name: str, rss_url: str) -> List[Dict[str, Any]]
             logger.error(f"Error: Could not determine current PST time for filtering.")
             return []
         
-        yesterday_pst = (current_pst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        logger.info(f"Filtering articles published after (PST): {yesterday_pst}")
+        # Filter for articles from the last 7 days instead of just yesterday
+        week_ago_pst = (current_pst - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        logger.info(f"Filtering articles published after (PST): {week_ago_pst}")
         
-        # Initialize browser for content extraction
-        from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
-        
-        browser_config = BrowserConfig(
-            headless=True,
-            extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"]
-        )
-        
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            for entry in feed.entries:
-                try:
-                    # Extract basic article data from RSS
-                    title = entry.get('title', '')
-                    link = entry.get('link', '')
-                    published = entry.get('published', '')
-                    
-                    # Parse published date
-                    pub_date = datetime.now()  # Default fallback
-                    if published:
-                        try:
-                            import email.utils
-                            parsed_date = email.utils.parsedate_to_datetime(published)
-                            pub_date = parsed_date
-                        except:
-                            logger.warning(f"Could not parse date: {published}")
-                    
-                    # Filter by date
-                    if pub_date < yesterday_pst:
-                        continue
-                    
-                    # Extract full article content using browser
-                    logger.info(f"Extracting full content for: {title}")
+        # Process RSS entries and extract full content
+        for entry in feed.entries:
+            try:
+                # Extract basic article data from RSS
+                title = entry.get('title', '')
+                link = entry.get('link', '')
+                published = entry.get('published', '')
+                
+                # Parse published date
+                pub_date = datetime.now()  # Default fallback
+                if published:
                     try:
-                        result = await crawler.arun(link)
-                        full_content = result.markdown.raw_markdown if result and result.markdown else entry.get('summary', '')
-                        
-                        # Fallback to RSS summary if browser extraction fails
-                        if not full_content or len(full_content) < 100:
-                            logger.warning(f"Browser extraction failed for {link}, using RSS summary")
-                            full_content = entry.get('summary', '')
-                        
-                    except Exception as e:
-                        logger.warning(f"Error extracting full content for {link}: {e}")
-                        full_content = entry.get('summary', '')
-                    
-                    # Create article data with full content
-                    article_data = {
-                        'title': title,
-                        'url': link,
-                        'published': pub_date,
-                        'source': source_name,
-                        'content': full_content,  # Full article content
-                        'author': entry.get('author', ''),
-                        'category': entry.get('category', '')
-                    }
-                    
-                    articles.append(article_data)
-                    logger.info(f"Found article with full content: {title} ({len(full_content)} chars)")
-                    
-                except Exception as e:
-                    logger.error(f"Error processing RSS entry: {e}")
+                        import email.utils
+                        parsed_date = email.utils.parsedate_to_datetime(published)
+                        pub_date = parsed_date
+                    except:
+                        logger.warning(f"Could not parse date: {published}")
+                
+                # Filter by date
+                if pub_date < week_ago_pst:
+                    logger.debug(f"Skipping old article: {title} (published: {pub_date})")
                     continue
+                
+                # Extract full article content using requests and BeautifulSoup
+                logger.info(f"Extracting full content for: {title}")
+                full_content = await extract_full_content(link, entry)
+                
+                # Create article data
+                article_data = {
+                    'title': title,
+                    'url': link,
+                    'published': pub_date,
+                    'source': source_name,
+                    'content': full_content,
+                    'author': entry.get('author', ''),
+                    'category': entry.get('category', '')
+                }
+                
+                articles.append(article_data)
+                logger.info(f"Found article with full content: {title} (published: {pub_date}, {len(full_content)} chars)")
+                
+            except Exception as e:
+                logger.error(f"Error processing RSS entry: {e}")
+                continue
         
         logger.info(f"Found {len(articles)} articles from {source_name}")
         return articles
@@ -133,6 +120,121 @@ async def crawl_rss_feed(source_name: str, rss_url: str) -> List[Dict[str, Any]]
     except Exception as e:
         logger.error(f"Error crawling RSS feed {source_name}: {e}")
         return []
+
+async def extract_full_content(url: str, rss_entry) -> str:
+    """Extract full article content from URL using multiple methods."""
+    try:
+        import re
+        
+        # Try Playwright first (if available) - B1 optimized
+        try:
+            from crawl4ai import AsyncWebCrawler, BrowserConfig
+            logger.info(f"Attempting Playwright extraction for: {url}")
+            
+            browser_config = BrowserConfig(
+                headless=True,
+                extra_args=[
+                    "--disable-gpu", 
+                    "--disable-dev-shm-usage", 
+                    "--no-sandbox",
+                    "--disable-extensions",
+                    "--disable-plugins",
+                    "--disable-images",
+                    "--disable-javascript",  # Reduce memory usage
+                    "--memory-pressure-off",
+                    "--max_old_space_size=512"  # Limit memory
+                ]
+            )
+            
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                result = await crawler.arun(url)
+                if result and result.markdown and result.markdown.raw_markdown:
+                    content = result.markdown.raw_markdown
+                    if len(content) > 500:
+                        logger.info(f"Playwright extraction successful: {len(content)} chars")
+                        return content
+                    else:
+                        logger.warning(f"Playwright extraction too short: {len(content)} chars")
+        except Exception as e:
+            logger.warning(f"Playwright extraction failed: {e}")
+        
+        # Fallback to HTTP + BeautifulSoup
+        logger.info(f"Falling back to HTTP extraction for: {url}")
+        
+        # Headers to mimic a real browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        # Fetch the webpage
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=30) as response:
+                if response.status != 200:
+                    logger.warning(f"Failed to fetch {url}: HTTP {response.status}")
+                    return rss_entry.get('summary', '') or rss_entry.get('description', '')
+                
+                html_content = await response.text()
+        
+        # Parse with BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            script.decompose()
+        
+        # Try different selectors for article content based on common patterns
+        content_selectors = [
+            'article',
+            '[class*="article"]',
+            '[class*="content"]',
+            '[class*="post"]',
+            '[class*="entry"]',
+            '.post-content',
+            '.entry-content',
+            '.article-content',
+            '.content-body',
+            '.story-body',
+            'main',
+            '.main-content'
+        ]
+        
+        content_text = ""
+        
+        # Try to find content using selectors
+        for selector in content_selectors:
+            elements = soup.select(selector)
+            if elements:
+                # Get text from the largest element (likely the main content)
+                largest_element = max(elements, key=lambda x: len(x.get_text()))
+                content_text = largest_element.get_text(separator=' ', strip=True)
+                if len(content_text) > 500:  # Minimum content length
+                    break
+        
+        # If no content found with selectors, try to get all text
+        if not content_text or len(content_text) < 500:
+            content_text = soup.get_text(separator=' ', strip=True)
+        
+        # Clean up the text
+        content_text = re.sub(r'\s+', ' ', content_text)  # Remove extra whitespace
+        content_text = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]]', '', content_text)  # Remove special chars
+        
+        # If we still don't have good content, fall back to RSS summary
+        if len(content_text) < 200:
+            logger.warning(f"Could not extract sufficient content from {url}, using RSS summary")
+            content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
+        
+        logger.info(f"HTTP extraction successful: {len(content_text)} chars")
+        return content_text
+        
+    except Exception as e:
+        logger.warning(f"Error extracting full content from {url}: {e}")
+        # Fall back to RSS summary
+        return rss_entry.get('summary', '') or rss_entry.get('description', '')
 
 async def process_article(article_data: Dict[str, Any]) -> bool:
     """Process a single article - store in Azure and index in Qdrant."""
@@ -298,12 +400,14 @@ async def main_loop():
                 await asyncio.sleep(sleep_duration)
                 continue
             
-            # Crawl sources
+            # Crawl sources (with B1 optimization - process one at a time)
             logger.info(f"Starting crawl cycle for {len(sources)} sources...")
             crawl_results = []
             for source in sources:
                 result = await crawl_source(source)
                 crawl_results.append(result)
+                # Small delay between sources to manage memory
+                await asyncio.sleep(5)
             
             # Summary
             logger.info("--- Crawl Cycle Summary ---")
