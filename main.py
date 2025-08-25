@@ -467,9 +467,25 @@ def start_health_server():
     try:
         # Use Azure App Service PORT environment variable, fallback to 8000
         port = int(os.environ.get('PORT', 8000))
-        server = HTTPServer(('0.0.0.0', port), HealthHandler)
-        logger.info(f"🚀 Health check server started on port {port}")
-        server.serve_forever()
+        
+        # Try multiple ports if the first one is busy
+        ports_to_try = [port, 8001, 8002, 8003, 8004]
+        
+        for try_port in ports_to_try:
+            try:
+                server = HTTPServer(('0.0.0.0', try_port), HealthHandler)
+                logger.info(f"🚀 Health check server started on port {try_port}")
+                server.serve_forever()
+                break  # If we get here, server started successfully
+            except OSError as e:
+                if "Address already in use" in str(e):
+                    logger.warning(f"Port {try_port} is busy, trying next port...")
+                    continue
+                else:
+                    raise e
+        else:
+            logger.error(f"Failed to start health server on any port: {ports_to_try}")
+            
     except Exception as e:
         logger.error(f"Failed to start health server: {e}")
 
