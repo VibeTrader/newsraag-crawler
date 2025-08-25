@@ -93,18 +93,18 @@ async def crawl_rss_feed(source_name: str, rss_url: str) -> List[Dict[str, Any]]
                     
                     # Extract full article content using browser
                     logger.info(f"Extracting full content for: {title}")
-                                                try:
-                                result = await crawler.arun(link)
-                                full_content = result.markdown.raw_markdown if result and result.markdown else entry.get('summary', '')
-                                
-                                # Fallback to RSS summary if browser extraction fails
-                                if not full_content or len(full_content) < 100:
-                                    logger.warning(f"Browser extraction failed for {link}, using RSS summary")
-                                    full_content = entry.get('summary', '')
-                                
-                            except Exception as e:
-                                logger.warning(f"Error extracting full content for {link}: {e}")
-                                full_content = entry.get('summary', '')
+                    try:
+                        result = await crawler.arun(link)
+                        full_content = result.markdown.raw_markdown if result and result.markdown else entry.get('summary', '')
+                        
+                        # Fallback to RSS summary if browser extraction fails
+                        if not full_content or len(full_content) < 100:
+                            logger.warning(f"Browser extraction failed for {link}, using RSS summary")
+                            full_content = entry.get('summary', '')
+                        
+                    except Exception as e:
+                        logger.warning(f"Error extracting full content for {link}: {e}")
+                        full_content = entry.get('summary', '')
                     
                     # Create article data with full content
                     article_data = {
