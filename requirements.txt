@@ -5,7 +5,7 @@
 python-dotenv>=1.0.0
 loguru
 
-# RSS parsing for discovery
+# RSS parsing for discoveries
 feedparser>=6.0.0
 
 # Browser-based content extraction
