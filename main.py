@@ -44,11 +44,11 @@ def load_sources_config(config_path: str) -> list:
         return []
 
 async def crawl_rss_feed(source_name: str, rss_url: str) -> List[Dict[str, Any]]:
-    """Crawl RSS feed and return articles."""
+    """Crawl RSS feed and extract full article content."""
     logger.info(f"Crawling RSS feed: {source_name} from {rss_url}")
     
     try:
-        # Parse RSS feed
+        # Parse RSS feed for article discovery
         feed = feedparser.parse(rss_url)
         articles = []
         
@@ -61,45 +61,68 @@ async def crawl_rss_feed(source_name: str, rss_url: str) -> List[Dict[str, Any]]
         yesterday_pst = (current_pst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         logger.info(f"Filtering articles published after (PST): {yesterday_pst}")
         
-        for entry in feed.entries:
-            try:
-                # Extract article data
-                title = entry.get('title', '')
-                link = entry.get('link', '')
-                published = entry.get('published', '')
-                
-                # Parse published date
-                pub_date = datetime.now()  # Default fallback
-                if published:
-                    try:
-                        # Try to parse the date
-                        import email.utils
-                        parsed_date = email.utils.parsedate_to_datetime(published)
-                        pub_date = parsed_date
-                    except:
-                        logger.warning(f"Could not parse date: {published}")
-                
-                # Filter by date
-                if pub_date < yesterday_pst:
+        # Initialize browser for content extraction
+        from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+        
+        browser_config = BrowserConfig(
+            headless=True,
+            extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"]
+        )
+        
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            for entry in feed.entries:
+                try:
+                    # Extract basic article data from RSS
+                    title = entry.get('title', '')
+                    link = entry.get('link', '')
+                    published = entry.get('published', '')
+                    
+                    # Parse published date
+                    pub_date = datetime.now()  # Default fallback
+                    if published:
+                        try:
+                            import email.utils
+                            parsed_date = email.utils.parsedate_to_datetime(published)
+                            pub_date = parsed_date
+                        except:
+                            logger.warning(f"Could not parse date: {published}")
+                    
+                    # Filter by date
+                    if pub_date < yesterday_pst:
+                        continue
+                    
+                    # Extract full article content using browser
+                    logger.info(f"Extracting full content for: {title}")
+                                                try:
+                                result = await crawler.arun(link)
+                                full_content = result.markdown.raw_markdown if result and result.markdown else entry.get('summary', '')
+                                
+                                # Fallback to RSS summary if browser extraction fails
+                                if not full_content or len(full_content) < 100:
+                                    logger.warning(f"Browser extraction failed for {link}, using RSS summary")
+                                    full_content = entry.get('summary', '')
+                                
+                            except Exception as e:
+                                logger.warning(f"Error extracting full content for {link}: {e}")
+                                full_content = entry.get('summary', '')
+                    
+                    # Create article data with full content
+                    article_data = {
+                        'title': title,
+                        'url': link,
+                        'published': pub_date,
+                        'source': source_name,
+                        'content': full_content,  # Full article content
+                        'author': entry.get('author', ''),
+                        'category': entry.get('category', '')
+                    }
+                    
+                    articles.append(article_data)
+                    logger.info(f"Found article with full content: {title} ({len(full_content)} chars)")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing RSS entry: {e}")
                     continue
-                
-                # Create article data
-                article_data = {
-                    'title': title,
-                    'url': link,
-                    'published': pub_date,
-                    'source': source_name,
-                    'content': entry.get('summary', ''),
-                    'author': entry.get('author', ''),
-                    'category': entry.get('category', '')
-                }
-                
-                articles.append(article_data)
-                logger.info(f"Found article: {title}")
-                
-            except Exception as e:
-                logger.error(f"Error processing RSS entry: {e}")
-                continue
         
         logger.info(f"Found {len(articles)} articles from {source_name}")
         return articles
