@@ -27,5 +27,5 @@ python --version
 pip list | grep -E "(crawl4ai|playwright|qdrant)"
 
 # Start the main application
-echo "🚀 Starting NewsRagnarok Crawler..."
+echo "🚀 Starting NewsRagnarok Crawler.."
 exec python main.py
