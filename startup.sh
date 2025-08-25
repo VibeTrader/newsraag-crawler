@@ -8,7 +8,7 @@ echo "🚀 Starting NewsRagnarok Crawler Setup..."
 # Ensure script is executable
 chmod +x "$0"
 
-# Check if we're in the right directory
+# Check if we're in the right direct
 if [ ! -f "main.py" ]; then
     echo "❌ Error: main.py not found. Current directory: $(pwd)"
     ls -la
