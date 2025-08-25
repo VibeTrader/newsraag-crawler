@@ -166,7 +166,7 @@ class QdrantClientWrapper:
                 points=[
                     models.PointStruct(
                         id=content_hash,
-                        vector=embedding.tolist(),
+                        vector=embedding,  # embedding is already a list
                         payload=payload
                     )
                 ]
@@ -209,7 +209,7 @@ class QdrantClientWrapper:
             # Search in collection
             search_results = self.client.search(
                 collection_name=self.collection_name,
-                query_vector=query_embedding.tolist(),
+                query_vector=query_embedding,  # query_embedding is already a list
                 limit=limit,
                 score_threshold=score_threshold
             )

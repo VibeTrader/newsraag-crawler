@@ -245,6 +245,11 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
         source = article_data['source']
         published = article_data['published']
         
+        logger.info(f"🔄 Processing article: {title}")
+        logger.info(f"   📄 Content length: {len(content)} characters")
+        logger.info(f"   🔗 URL: {url}")
+        logger.info(f"   📅 Published: {published}")
+        
         # Create article model
         article = OutputModel(
             title=title,
@@ -284,7 +289,7 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
         vector_client = None
         try:
             vector_client = VectorClient()
-            logger.info(f"Adding document to Qdrant: {title}")
+            logger.info(f"🔍 Adding document to Qdrant: {title}")
             
             doc_metadata = {
                 "publishDatePst": article.publishDatePst.isoformat() if article.publishDatePst else None,
@@ -294,13 +299,15 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
                 "article_id": article_dict.get("_article_id")
             }
             doc_metadata = {k: v for k, v in doc_metadata.items() if v is not None}
+            logger.info(f"   📊 Metadata: {doc_metadata}")
             
             add_result = await vector_client.add_document(content, metadata=doc_metadata)
+            logger.info(f"   📤 Qdrant add_document result: {add_result}")
             if add_result:
-                logger.info(f"Successfully indexed: {title}")
+                logger.info(f"✅ Successfully indexed: {title}")
                 return True
             else:
-                logger.error(f"Failed to index: {title}")
+                logger.error(f"❌ Failed to index: {title}")
                 return False
                 
         except Exception as e:
@@ -331,12 +338,16 @@ async def crawl_source(source_config: dict) -> tuple:
             articles = await crawl_rss_feed(source_name, source_url)
             
             # Process each article
-            for article in articles:
+            logger.info(f"Processing {len(articles)} articles from {source_name}")
+            for i, article in enumerate(articles):
+                logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
                 success = await process_article(article)
                 if success:
                     processed_count += 1
+                    logger.info(f"✅ Successfully processed article {i+1}")
                 else:
                     failure_count += 1
+                    logger.error(f"❌ Failed to process article {i+1}")
                     
         elif source_type == 'html':
             logger.warning(f"HTML crawling not implemented for {source_name}")
