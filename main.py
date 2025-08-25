@@ -483,9 +483,13 @@ if __name__ == "__main__":
     logger.info(f"   📡 PORT environment variable: {port}")
     logger.info(f"   🚀 Starting health check server on port {port}")
     
-    # Start health check server in a separate thread
+    # Start health check server IMMEDIATELY in a separate thread
     health_thread = threading.Thread(target=start_health_server, daemon=True)
     health_thread.start()
+    
+    # Give health server a moment to start
+    import time
+    time.sleep(2)
     
     # Run the main crawler loop
     asyncio.run(main_loop())
