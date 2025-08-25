@@ -328,7 +328,8 @@ class HealthHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler for Azure App Service health checks."""
     
     def do_GET(self):
-        if self.path == '/health':
+        # Handle Azure App Service health checks
+        if self.path in ['/', '/health', '/api/health']:
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -336,7 +337,8 @@ class HealthHandler(BaseHTTPRequestHandler):
                 "status": "healthy",
                 "service": "NewsRagnarok Crawler",
                 "timestamp": datetime.now().isoformat(),
-                "message": "Crawler is running successfully"
+                "message": "Crawler is running successfully",
+                "port": os.environ.get('PORT', '8000')
             }
             self.wfile.write(json.dumps(response).encode())
         else:
@@ -348,8 +350,10 @@ class HealthHandler(BaseHTTPRequestHandler):
 def start_health_server():
     """Start HTTP server for Azure health checks."""
     try:
-        server = HTTPServer(('0.0.0.0', 8000), HealthHandler)
-        logger.info("🚀 Health check server started on port 8000")
+        # Use Azure App Service PORT environment variable, fallback to 8000
+        port = int(os.environ.get('PORT', 8000))
+        server = HTTPServer(('0.0.0.0', port), HealthHandler)
+        logger.info(f"🚀 Health check server started on port {port}")
         server.serve_forever()
     except Exception as e:
         logger.error(f"Failed to start health server: {e}")
@@ -357,6 +361,12 @@ def start_health_server():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NewsRagnarok Crawler (Simplified)")
     args = parser.parse_args()
+    
+    # Log Azure App Service configuration
+    port = os.environ.get('PORT', '8000')
+    logger.info(f"🌐 Azure App Service Configuration:")
+    logger.info(f"   📡 PORT environment variable: {port}")
+    logger.info(f"   🚀 Starting health check server on port {port}")
     
     # Start health check server in a separate thread
     health_thread = threading.Thread(target=start_health_server, daemon=True)
