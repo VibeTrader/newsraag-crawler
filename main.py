@@ -8,6 +8,9 @@ import feedparser
 import requests
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json
 
 # Import our modules
 from clients.vector_client import VectorClient
@@ -321,9 +324,43 @@ async def main_loop():
     except Exception as e:
         logger.error(f"Unexpected error in main loop: {e}")
 
+class HealthHandler(BaseHTTPRequestHandler):
+    """Simple HTTP handler for Azure App Service health checks."""
+    
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            response = {
+                "status": "healthy",
+                "service": "NewsRagnarok Crawler",
+                "timestamp": datetime.now().isoformat(),
+                "message": "Crawler is running successfully"
+            }
+            self.wfile.write(json.dumps(response).encode())
+        else:
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"NewsRagnarok Crawler is running")
+
+def start_health_server():
+    """Start HTTP server for Azure health checks."""
+    try:
+        server = HTTPServer(('0.0.0.0', 8000), HealthHandler)
+        logger.info("🚀 Health check server started on port 8000")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"Failed to start health server: {e}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NewsRagnarok Crawler (Simplified)")
     args = parser.parse_args()
     
-    # Run the main loop
+    # Start health check server in a separate thread
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    
+    # Run the main crawler loop
     asyncio.run(main_loop())
