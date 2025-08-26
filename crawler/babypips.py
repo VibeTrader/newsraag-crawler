@@ -177,13 +177,21 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                 safe_title_part = re.sub(r'[^\w\-_.]', '_', title)[:200]
 
                 # Clean and format the markdown content
+                logger.info(f"[{self.name}] Original content length: {len(result.markdown.raw_markdown)} characters")
+                logger.info(f"[{self.name}] Original content preview: {result.markdown.raw_markdown[:200]}...")
+                
                 cleaned_markdown = clean_markdown(result.markdown.raw_markdown)
+                
+                logger.info(f"[{self.name}] Cleaned content length: {len(cleaned_markdown)} characters")
+                logger.info(f"[{self.name}] Cleaned content preview: {cleaned_markdown[:200]}...")
                 
                 # Include metadata in the markdown
                 cleaned_markdown = (f'# {title}\n\n'
                                  f'Author: {creator}\n'
                                  f'Category: {category}\n\n'
                                  f'{cleaned_markdown}')
+                
+                logger.info(f"[{self.name}] Final content length (with metadata): {len(cleaned_markdown)} characters")
                 
                 # Prepare article data
                 article = OutputModel(

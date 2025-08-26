@@ -22,6 +22,7 @@ from models.output import OutputModel
 # Import for content extraction
 import aiohttp
 from bs4 import BeautifulSoup
+from utils.clean_markdown import clean_markdown
 
 # Define path to config
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
@@ -151,8 +152,13 @@ async def extract_full_content(url: str, rss_entry) -> str:
                 if result and result.markdown and result.markdown.raw_markdown:
                     content = result.markdown.raw_markdown
                     if len(content) > 500:
-                        logger.info(f"Playwright extraction successful: {len(content)} chars")
-                        return content
+                        # Clean the content using clean_markdown
+                        cleaned_content = clean_markdown(content)
+                        if cleaned_content and len(cleaned_content) > 50:
+                            logger.info(f"Playwright extraction successful: {len(cleaned_content)} chars")
+                            return cleaned_content
+                        else:
+                            logger.warning(f"Playwright extraction cleaned content too short: {len(cleaned_content) if cleaned_content else 0} chars")
                     else:
                         logger.warning(f"Playwright extraction too short: {len(content)} chars")
         except Exception as e:
@@ -219,14 +225,15 @@ async def extract_full_content(url: str, rss_entry) -> str:
         if not content_text or len(content_text) < 500:
             content_text = soup.get_text(separator=' ', strip=True)
         
-        # Clean up the text
-        content_text = re.sub(r'\s+', ' ', content_text)  # Remove extra whitespace
-        content_text = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]]', '', content_text)  # Remove special chars
+        # Clean the content using clean_markdown
+        cleaned_content = clean_markdown(content_text)
         
         # If we still don't have good content, fall back to RSS summary
-        if len(content_text) < 200:  # Reverted to original minimum
+        if not cleaned_content or len(cleaned_content) < 200:  # Reverted to original minimum
             logger.warning(f"Could not extract sufficient content from {url}, using RSS summary")
             content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
+        else:
+            content_text = cleaned_content
         
         logger.info(f"HTTP extraction successful: {len(content_text)} chars")
         return content_text
