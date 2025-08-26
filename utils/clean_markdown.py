@@ -1,7 +1,7 @@
 import re
 
 def clean_markdown(text: str) -> str:
-a    """Enhanced content cleaning to improve similarity scores."""
+    """Enhanced content cleaning to improve similarity scores."""
     
     # Remove common site branding and ads
     patterns_to_remove = [
@@ -25,6 +25,7 @@ a    """Enhanced content cleaning to improve similarity scores."""
         r'##\s*\[.*?\]\(.*?\)',  # Remove markdown headers with links
         r'\* \[.*?\]\(.*?\)',  # Remove navigation links
         r'\[AnalysisPremium\].*?\[Learn\].*?\[School\].*?\[Community\]',
+        r'\[Babypips\].*?\[AnalysisPremium\].*?\[News\].*?\[Trading\]',
         
         # Remove common noise
         r'Share this article',
@@ -35,6 +36,15 @@ a    """Enhanced content cleaning to improve similarity scores."""
         r'Continue reading',
         r'Click here',
         r'Learn more',
+        r'View Menu',
+        r'Sign In.*?Join',
+        r'Partner Center',
+        r'Risk-On / Risk-Off Meter',
+        r'Correlation Calculator',
+        r'Learn Forex',
+        r'Forex Tools',
+        r'Company',
+        r'Copyright.*?All rights reserved',
         
         # Remove HTML-like content
         r'<[^>]+>',  # Remove HTML tags
