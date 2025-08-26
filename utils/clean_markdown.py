@@ -1,7 +1,7 @@
 import re
 
 def clean_markdown(text: str) -> str:
-    """Enhanced content cleaning to improve similarity scores."""
+a    """Enhanced content cleaning to improve similarity scores."""
     
     # Remove common site branding and ads
     patterns_to_remove = [
