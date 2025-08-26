@@ -212,7 +212,7 @@ async def extract_full_content(url: str, rss_entry) -> str:
                 # Get text from the largest element (likely the main content)
                 largest_element = max(elements, key=lambda x: len(x.get_text()))
                 content_text = largest_element.get_text(separator=' ', strip=True)
-                if len(content_text) > 500:  # Minimum content length
+                if len(content_text) > 500:  # Reverted to original minimum
                     break
         
         # If no content found with selectors, try to get all text
@@ -224,7 +224,7 @@ async def extract_full_content(url: str, rss_entry) -> str:
         content_text = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]]', '', content_text)  # Remove special chars
         
         # If we still don't have good content, fall back to RSS summary
-        if len(content_text) < 200:
+        if len(content_text) < 200:  # Reverted to original minimum
             logger.warning(f"Could not extract sufficient content from {url}, using RSS summary")
             content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
         

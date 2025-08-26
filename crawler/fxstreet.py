@@ -128,13 +128,13 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
             # Define crawler configuration
             crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.BYPASS,
-                # Use CSS selector from PRD, verify if needed
+                # Simplified selector to target actual article content
                 css_selector="#fxs_article_content", 
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
                         threshold=0.85, # Adjust threshold if needed
                         threshold_type="fixed",
-                        min_word_threshold=50,
+                        min_word_threshold=50,  # Reverted to original
                         user_query="Main article content only"
                     ),
                     options={ # Keep options simple as per babypips

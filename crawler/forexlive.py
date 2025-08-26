@@ -137,13 +137,13 @@ class ForexLiveCrawler(BaseCrawlerModule[ForexLiveUrlData]):
             # Define crawler configuration - Target the actual article page content
             crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.BYPASS,
-                # Selector needs verification - common patterns for article content
-                css_selector=".article-content", 
+                # Simplified selector to target actual article content
+                css_selector=".article-content, .post-content, .entry-content", 
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
                         threshold=0.85, 
                         threshold_type="fixed",
-                        min_word_threshold=50,
+                        min_word_threshold=50,  # Reverted to original
                         user_query="Main article content only"
                     ),
                     options={ 

@@ -144,12 +144,13 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                 cache_mode=CacheMode.BYPASS,
                 excluded_tags=['nav', 'footer', 'aside', 'header', 'script', 'style', 'iframe', 'form', 'button', 'input', 'menu', 'menuitem'],
                 remove_overlay_elements=True,
-                css_selector=".full-post",  # This targets BabyPips main content
+                # Simplified selector to target actual article content
+                css_selector=".full-post",  
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
                         threshold=0.85,
                         threshold_type="fixed",
-                        min_word_threshold=50,
+                        min_word_threshold=50,  # Reverted to original
                         user_query="Main article content only"
                     ),
                     options={
