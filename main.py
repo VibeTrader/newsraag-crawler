@@ -11,7 +11,7 @@ from typing import List, Dict, Any
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
-
+from datetime import datetime
 # Import our modules
 from clients.vector_client import VectorClient
 from utils.azure_utils import check_azure_connection, upload_json_to_azure
@@ -396,6 +396,23 @@ async def check_dependencies() -> bool:
     
     return redis_ok and vector_ok and azure_ok
 
+async def cleanup_old_data():
+    """Clean up data older than 24 hours."""
+    try:
+        logger.info("Starting cleanup of old data...")
+        vector_client = create_vector_client()
+        
+        # Delete documents older than 24 hours
+        result = await vector_client.delete_documents_older_than(hours=24)
+        if result:
+            logger.info(f"Cleanup completed successfully: {result}")
+        else:
+            logger.error("Cleanup failed")
+            
+        await vector_client.close()
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
+
 async def main_loop():
     """Main loop to periodically crawl sources."""
     logger.info("Starting NewsRagnarok main loop...")
@@ -404,10 +421,21 @@ async def main_loop():
         logger.error("No valid sources loaded. Exiting.")
         return
     
+    # Initialize cleanup timer
+    last_cleanup_time = datetime.now()
+    
     try:
         while True:
             start_time = time.monotonic()
             logger.info("--- Starting New Cycle ---")
+            
+            # Check if cleanup is needed
+            current_time = datetime.now()
+            if (current_time - last_cleanup_time).total_seconds() >= CLEANUP_INTERVAL_SECONDS:
+                logger.info("Running scheduled cleanup...")
+                await cleanup_old_data()
+                last_cleanup_time = current_time
+                logger.info("Cleanup completed, continuing with crawl cycle...")
             
             # Check dependencies
             if not await check_dependencies():
@@ -430,21 +458,38 @@ async def main_loop():
             # Summary
             logger.info("--- Crawl Cycle Summary ---")
             total_processed = 0
+            total_failed = 0
             for source_name, processed_count, failure_count in crawl_results:
                 logger.info(f"- Source '{source_name}': {processed_count} processed, {failure_count} failed.")
                 total_processed += processed_count
-            logger.info(f"--- Total items processed this crawl cycle: {total_processed} ---")
+                total_failed += failure_count
+            
+            logger.info(f"--- Cycle Statistics ---")
+            logger.info(f"Total items processed: {total_processed}")
+            logger.info(f"Total items failed: {total_failed}")
+            logger.info(f"Success rate: {(total_processed/(total_processed+total_failed)*100):.2f}% if total_processed + total_failed > 0 else 0}%")
+            
+            # Calculate and log time until next cleanup
+            time_until_cleanup = CLEANUP_INTERVAL_SECONDS - (datetime.now() - last_cleanup_time).total_seconds()
+            logger.info(f"Next cleanup in: {time_until_cleanup/3600:.2f} hours")
             
             # Sleep until next cycle
             cycle_duration = time.monotonic() - start_time
             sleep_duration = max(0, CRAWL_INTERVAL_SECONDS - cycle_duration)
-            logger.info(f"Cycle finished in {cycle_duration:.2f} seconds. Sleeping for {sleep_duration:.2f} seconds...")
+            logger.info(f"Cycle finished in {cycle_duration:.2f} seconds")
+            logger.info(f"Sleeping for {sleep_duration:.2f} seconds...")
             await asyncio.sleep(sleep_duration)
             
     except KeyboardInterrupt:
         logger.info("Received interrupt signal. Shutting down...")
+        # Perform final cleanup before shutting down
+        await cleanup_old_data()
+        logger.info("Final cleanup completed. Shutting down...")
     except Exception as e:
         logger.error(f"Unexpected error in main loop: {e}")
+        # Log stack trace for debugging
+        import traceback
+        logger.error(f"Stack trace:\n{traceback.format_exc()}")
 
 class HealthHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler for Azure App Service health checks."""

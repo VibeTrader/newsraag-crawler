@@ -3,56 +3,50 @@
 # Set error handling
 set -e
 
-echo "🚀 Starting NewsRagnarok Crawler..."
+echo "🚀 Starting NewsRagnarok Crawler in Azure App Service..."
 
-# Ensure script is executable
-chmod +x "$0"
+# Set working directory
+cd /home/site/wwwroot || exit 1
 
-# Check if we're in the right directory
-if [ ! -f "main.py" ]; then
-    echo "❌ Error: main.py not found. Current directory: $(pwd)"
-    ls -la
-    exit 1
-fi
+# Environment setup for Azure App Service
+export PORT=${PORT:-8000}
+export WEBSITE_HOSTNAME=${WEBSITE_HOSTNAME:-localhost}
+export PATH="$HOME/.local/bin:$PATH"
 
 # Check Python availability
 echo "🐍 Checking Python availability..."
-if command -v python3 &> /dev/null; then
-    echo "✅ Python3 found: $(python3 --version)"
-    PYTHON_CMD="python3"
-elif command -v python &> /dev/null; then
-    echo "✅ Python found: $(python --version)"
-    PYTHON_CMD="python"
+if command -v python3.9 &> /dev/null; then
+    PYTHON_CMD="python3.9"
+elif command -v python3.8 &> /dev/null; then
+    PYTHON_CMD="python3.8"
 else
-    echo "❌ No Python found. Available commands:"
-    which python3 python || echo "No python commands found"
+    PYTHON_CMD="python3"
+fi
+
+echo "✅ Using Python: $($PYTHON_CMD --version)"
+
+# Install dependencies
+echo "📦 Installing Python dependencies..."
+$PYTHON_CMD -m pip install --user --upgrade pip
+
+if [ -f "requirements.txt" ]; then
+    echo "📋 Installing packages from requirements.txt..."
+    $PYTHON_CMD -m pip install --user -r requirements.txt
+else
+    echo "❌ No requirements.txt found"
     exit 1
 fi
 
-# Install Python dependencies
-echo "📦 Installing Python dependencies..."
-if [ -f "requirements.txt" ]; then
-    echo "📋 Found requirements.txt, installing packages..."
-    $PYTHON_CMD -m ensurepip --upgrade
-    $PYTHON_CMD -m pip install --upgrade pip
-    $PYTHON_CMD -m pip install -r requirements.txt
-    echo "✅ Dependencies installed successfully"
-else
-    echo "⚠️ No requirements.txt found, installing basic packages..."
-    $PYTHON_CMD -m ensurepip --upgrade
-    $PYTHON_CMD -m pip install --upgrade pip
-    $PYTHON_CMD -m pip install pyyaml loguru python-dotenv
-    echo "✅ Basic packages installed"
-fi
+# Install Playwright
+echo "🌐 Setting up Playwright..."
+$PYTHON_CMD -m pip install --user playwright
+$PYTHON_CMD -m playwright install --with-deps chromium
+echo "✅ Playwright setup complete"
 
-# Install Playwright system dependencies
-echo "🌐 Installing Playwright system dependencies..."
-$PYTHON_CMD -m playwright install-deps || echo "⚠️ Could not install system dependencies"
+# Create necessary directories
+mkdir -p logs
+mkdir -p data
 
-# Install Playwright browsers
-echo "🌐 Installing Playwright browsers..."
-$PYTHON_CMD -m playwright install chromium || echo "⚠️ Could not install browsers, will use HTTP fallback"
-
-# Start the main application
-echo "🚀 Starting NewsRagnarok Crawler with $PYTHON_CMD..."
+# Start the application
+echo "🚀 Starting NewsRagnarok Crawler..."
 exec $PYTHON_CMD main.py

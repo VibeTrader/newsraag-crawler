@@ -90,6 +90,17 @@ def clean_markdown(text: str) -> str:
         r'Translate English.*?Traditional Chinese\)',
         r'English.*?Traditional Chinese\)',
         r'1\. English.*?18\. 繁體中文 \(Traditional Chinese\)',
+        r'ADVERTISEMENT.*?BELOW',  # Remove advertisement sections
+        r'Most Popular.*?$',  # Remove "Most Popular" sections
+        r'Tags:.*?$',  # Remove tags section
+        r'Text Size.*?$',  # Remove text size controls
+        r'investingLive.*?Log In',  # Remove login headers
+        r'\* Live Feed \* Forex \* Stocks \* Crypto.*?More',  # Remove navigation menus
+        r'Live \* Live Charts \* Live Quotes.*?Calendar',  # Remove live sections
+        r'Join investingLive.*?Twitter \* Facebook',  # Remove social media
+        r'Source link\.',  # Remove source links
+        r'## Top Brokers.*?$',  # Remove broker sections
+
     ]
     
     for pattern in navigation_patterns:
@@ -165,6 +176,15 @@ def clean_markdown(text: str) -> str:
         'Translate English',
         'English',
         '1. English',
+        'ADVERTISEMENT',
+        'Most Popular',
+        'Text Size',
+        'investingLive',
+        'Live Feed',
+        'Live Charts',
+        'Join investingLive',
+        'Source link',
+        'Top Brokers'
     ]
     
     # Find the earliest navigation marker and cut the text there
