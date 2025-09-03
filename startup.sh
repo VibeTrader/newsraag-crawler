@@ -15,7 +15,9 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # Check Python availability
 echo "🐍 Checking Python availability..."
-if command -v python3.9 &> /dev/null; then
+if command -v python3.12 &> /dev/null; then
+    PYTHON_CMD="python3.12"
+elif command -v python3.9 &> /dev/null; then
     PYTHON_CMD="python3.9"
 elif command -v python3.8 &> /dev/null; then
     PYTHON_CMD="python3.8"
