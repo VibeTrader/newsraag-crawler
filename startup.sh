@@ -1,19 +1,25 @@
 #!/bin/bash
 
-# Set error handling
-set -e
+# Enable debugging and strict error handling
+set -ex
 
 echo "🚀 Starting NewsRagnarok Crawler in Azure App Service..."
 
-# Set working directory
-cd /home/site/wwwroot || exit 1
+# Set working directory to ensure we're in the right place
+WWWROOT="/home/site/wwwroot"
+cd "$WWWROOT"
+
+echo "📂 Current directory: $(pwd)"
+echo "📋 Directory contents:"
+ls -la
 
 # Environment setup for Azure App Service
 export PORT=${PORT:-8000}
 export WEBSITE_HOSTNAME=${WEBSITE_HOSTNAME:-localhost}
 export PATH="$HOME/.local/bin:$PATH"
+export PYTHONUNBUFFERED=1
 
-# Check Python availability
+# Determine Python command
 echo "🐍 Checking Python availability..."
 if command -v python3.12 &> /dev/null; then
     PYTHON_CMD="python3.12"
@@ -27,35 +33,39 @@ fi
 
 echo "✅ Using Python: $($PYTHON_CMD --version)"
 
-# Install dependencies
-echo "📦 Installing Python dependencies..."
-# Avoid using --user flag for pip upgrade
+# Install/upgrade pip
+echo "📦 Upgrading pip..."
 $PYTHON_CMD -m pip install --upgrade pip
 
+# Install dependencies from requirements.txt
 if [ -f "requirements.txt" ]; then
     echo "📋 Installing packages from requirements.txt..."
     $PYTHON_CMD -m pip install -r requirements.txt
 else
-    echo "❌ No requirements.txt found"
+    echo "❌ requirements.txt not found in $(pwd)"
+    echo "Searching for requirements.txt file..."
+    find "$WWWROOT" -name "requirements.txt" -type f
     exit 1
 fi
 
-# Install Playwright
+# Install and setup Playwright
 echo "🌐 Setting up Playwright..."
 $PYTHON_CMD -m pip install playwright
 $PYTHON_CMD -m playwright install chromium
-# Avoid --with-deps as it might be causing issues in Azure environment
 echo "✅ Playwright setup complete"
 
 # Create necessary directories
 mkdir -p logs
 mkdir -p data
 
-# Make sure app binds to the right port
-echo "🔧 Setting PORT environment variable to $PORT"
-export PYTHONUNBUFFERED=1
+# Verify that main.py exists
+if [ ! -f "main.py" ]; then
+    echo "❌ main.py not found in $(pwd)"
+    echo "Searching for main.py file..."
+    find "$WWWROOT" -name "main.py" -type f
+    exit 1
+fi
 
 # Start the application
-echo "🚀 Starting NewsRagnarok Crawler..."
-# Add more verbose output for debugging
-$PYTHON_CMD -u main.py
+echo "🚀 Starting NewsRagnarok Crawler with main.py..."
+exec $PYTHON_CMD -u main.py
