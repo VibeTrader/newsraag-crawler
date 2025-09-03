@@ -12,6 +12,9 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 from datetime import datetime
+import gc
+import psutil
+import os
 # Import our modules
 from clients.vector_client import VectorClient
 from utils.azure_utils import check_azure_connection, upload_json_to_azure
@@ -29,6 +32,12 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
 CRAWL_INTERVAL_SECONDS = 3600  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every hour
+
+def log_memory_usage():
+    """Log current memory usage."""
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    logger.info(f"Memory usage: {mem_info.rss / 1024 / 1024:.2f} MB")
 
 def load_sources_config(config_path: str) -> list:
     """Loads the sources configuration from the YAML file."""
@@ -412,7 +421,6 @@ async def cleanup_old_data():
         await vector_client.close()
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
-
 async def main_loop():
     """Main loop to periodically crawl sources."""
     logger.info("Starting NewsRagnarok main loop...")
@@ -423,11 +431,26 @@ async def main_loop():
     
     last_cleanup_time = datetime.now()
     
+    # Add memory tracking
+    try:
+        import gc
+        import psutil
+        process = psutil.Process(os.getpid())
+        logger.info(f"Initial memory usage: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+    except ImportError:
+        logger.warning("psutil not available, memory tracking disabled")
+        process = None
+    
     try:
         while True:
             start_time = time.monotonic()
             logger.info("--- Starting New Cycle ---")
             logger.info(f"Current time: {datetime.now()}")
+            
+            # Log memory usage at cycle start if available
+            if process:
+                mem_info = process.memory_info()
+                logger.info(f"Memory usage at cycle start: {mem_info.rss / 1024 / 1024:.2f} MB")
             
             # Check if cleanup is needed (every 24 hours)
             current_time = datetime.now()
@@ -436,6 +459,13 @@ async def main_loop():
                 await cleanup_old_data()
                 last_cleanup_time = current_time
                 logger.info("Cleanup completed, continuing with crawl cycle...")
+                
+                # Force garbage collection after cleanup
+                if gc:
+                    logger.info("Forcing garbage collection after cleanup...")
+                    gc.collect()
+                    if process:
+                        logger.info(f"Memory after cleanup: {process.memory_info().rss / 1024 / 1024:.2f} MB")
             
             # Check dependencies
             if not await check_dependencies():
@@ -449,15 +479,33 @@ async def main_loop():
             # Crawl sources (run every hour)
             logger.info(f"Starting crawl cycle for {len(sources)} sources...")
             crawl_results = []
-            for source in sources:
+            
+            for i, source in enumerate(sources):
                 try:
+                    logger.info(f"Processing source {i+1}/{len(sources)}: {source.get('name', 'Unknown')}")
                     result = await crawl_source(source)
                     crawl_results.append(result)
+                    
                     # Small delay between sources to manage memory
                     await asyncio.sleep(5)
+                    
+                    # Garbage collect after each source
+                    if gc and i % 2 == 1:  # Every 2 sources
+                        logger.info(f"Performing garbage collection after source {i+1}/{len(sources)}")
+                        gc.collect()
+                        if process:
+                            logger.info(f"Memory after source {i+1}: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+                            
+                    # Check for excessive memory usage and reduce pressure if needed
+                    if process and process.memory_info().rss > 800 * 1024 * 1024:  # Over 800MB
+                        logger.warning("Memory usage high, performing emergency cleanup")
+                        gc.collect()
+                        # You could also implement a more aggressive cleanup here
+                        await asyncio.sleep(10)  # Give system time to reclaim memory
+                        
                 except Exception as e:
-                    logger.error(f"Error crawling source {source}: {e}")
-                    crawl_results.append((source, 0, 1))  # Count as failed
+                    logger.error(f"Error crawling source {source.get('name', 'Unknown')}: {e}")
+                    crawl_results.append((source.get('name', 'Unknown'), 0, 1))  # Count as failed
             
             # Summary
             logger.info("--- Crawl Cycle Summary ---")
@@ -478,6 +526,13 @@ async def main_loop():
             time_until_cleanup = CLEANUP_INTERVAL_SECONDS - (datetime.now() - last_cleanup_time).total_seconds()
             logger.info(f"Next cleanup in: {time_until_cleanup/3600:.2f} hours")
             
+            # Final garbage collection at end of cycle
+            if gc:
+                logger.info("Forcing final garbage collection at end of cycle...")
+                gc.collect()
+                if process:
+                    logger.info(f"Memory after cycle end: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+            
             # Calculate next run time
             cycle_duration = time.monotonic() - start_time
             sleep_duration = max(0, CRAWL_INTERVAL_SECONDS - cycle_duration)
@@ -486,6 +541,15 @@ async def main_loop():
             logger.info(f"Cycle finished in {cycle_duration:.2f} seconds")
             logger.info(f"Next crawl cycle scheduled for: {next_run_time}")
             logger.info(f"Sleeping for {sleep_duration:.2f} seconds...")
+            
+            # Optional: log system resources before sleep
+            if process:
+                try:
+                    cpu_percent = psutil.cpu_percent(interval=1)
+                    mem_percent = psutil.virtual_memory().percent
+                    logger.info(f"System resources: CPU {cpu_percent}%, Memory {mem_percent}%")
+                except:
+                    pass
             
             await asyncio.sleep(sleep_duration)
             
@@ -497,18 +561,17 @@ async def main_loop():
         logger.error(f"Unexpected error in main loop: {e}")
         import traceback
         logger.error(f"Stack trace:\n{traceback.format_exc()}")
+        
+        # Try to recover - perform cleanup and restart the loop
+        try:
+            logger.info("Attempting recovery...")
+            if gc:
+                gc.collect()
+            await asyncio.sleep(60)  # Wait a minute before restarting
+            await main_loop()  # Recursive call to restart the loop
+        except Exception as recover_error:
+            logger.critical(f"Recovery failed: {recover_error}")
             
-    except KeyboardInterrupt:
-        logger.info("Received interrupt signal. Shutting down...")
-        # Perform final cleanup before shutting down
-        await cleanup_old_data()
-        logger.info("Final cleanup completed. Shutting down...")
-    except Exception as e:
-        logger.error(f"Unexpected error in main loop: {e}")
-        # Log stack trace for debugging
-        import traceback
-        logger.error(f"Stack trace:\n{traceback.format_exc()}")
-
 class HealthHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler for Azure App Service health checks."""
     

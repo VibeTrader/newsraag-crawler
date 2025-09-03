@@ -1,38 +1,16 @@
 import re
 
 def clean_markdown(text: str) -> str:
-    """Enhanced content cleaning to improve similarity scores while preserving market data."""
+    """
+    Cleans markdown content to extract only the relevant news article
+    while preserving structure and important information.
+    """
     
-    # First remove all HTML tags and clean up basic formatting
-    text = re.sub(r'<[^>]*>', '', text)
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
-    text = re.sub(r'\[!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
-    text = re.sub(r'https?://[^\s]+', '', text)
-    text = re.sub(r'www\.[^\s]+', '', text)
+    # First identify if this is a market/financial article with specific patterns
+    is_financial_article = bool(re.search(r'(Natural Gas|market|trading|price|chart|consumption|export)', text, re.IGNORECASE))
     
-    # Keep these market-related terms and their content
-    market_data_patterns = [
-        r'Technical analysis:.*?(?=##|$)',  # Keep technical analysis section
-        r'Market movers:.*?(?=##|$)',       # Keep market movers section
-        r'\*\*([^*]+)\*\*',                 # Keep bold text content
-        r'RSI.*?(?=\.|$)',                  # Keep RSI analysis
-        r'MACD.*?(?=\.|$)',                 # Keep MACD analysis
-        r'support.*?(?=\.|$)',              # Keep support levels
-        r'resistance.*?(?=\.|$)',           # Keep resistance levels
-        r'[0-9]+(?:\.[0-9]+)?%',           # Keep percentage values
-        r'\$[0-9]+(?:\.[0-9]+)?',          # Keep price values
-    ]
-    
-    # Store market data sections
-    preserved_sections = []
-    for pattern in market_data_patterns:
-        matches = re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-        for match in matches:
-            preserved_sections.append((match.start(), match.end(), match.group(0)))
-    
-    # Remove navigation and promotional content
+    # Remove common navigation and promotional content
     navigation_patterns = [
-        # Navigation and headers
         r'## Babypips \* AnalysisPremium \* News \* Trading \* Crypto \*',
         r'\* AnalysisPremium \* News \* Trading \* Crypto \*',
         r'\* Trading Systems \* Psychology \* Technical Analysis \* Trade Ideas \*',
@@ -41,118 +19,108 @@ def clean_markdown(text: str) -> str:
         r'ASSETS.*?COACHES',
         r'LATEST NEWS.*?COACHES',
         r'Skip to main content.*?Newsletter',
-        
-        # Advertisements and promotions
+        r'\* Ed Ponsi \* Wayne McDonell \* Brokers \* Brokers \* Broker Reviews \* Best of \d+ \* Trader Cashback \* Press Releases',
+        r'!\[pepperstone-markets-limited \]\(.*?Pepperstone',
         r'ADVERTISEMENT.*?BELOW',
         r'SPONSORED.*?investment advice\.',
         r'Ad-free experience.*?Sign In',
         r'Daily actionable short-term strategies',
-        r'High-impact economic event trading guides',
-        r'Unlimited Access access to MarketMilk',
-        r'This Article Is For Premium Members Only',
-        r'Become a Premium member.*?Plus More!',
-        
-        # Social and sharing
-        r'Share:.*?investment advice\.',
-        r'Share this article',
-        r'Follow us on',
-        r'Subscribe to',
-        r'Get the latest',
-        
-        # Legal and disclaimers
-        r'Information on these pages.*?investment advice\.',
-        r'Risk Warning.*?investment advice\.',
-        r'CFDs are complex instruments.*?investment advice\.',
-        r'Forex trading involves significant risk.*?investors\.',
-        r'Copyright.*?All rights reserved',
-        
-        # UI elements
-        r'Plus More!',
-        r'See what else is included!',
-        r'Already a Premium member\?',
-        r'Sign In',
-        r'Partner Center',
-        r'TRENDING:.*?',
-        r'GET THE APP.*?',
-        r'Read more',
-        r'Continue reading',
-        r'Click here',
-        r'Learn more',
-        r'View Menu',
-        r'Try It Out!',
-        
-        # Tools and features
-        r'Risk-On / Risk-Off Meter',
-        r'Correlation Calculator',
-        r'Learn Forex',
-        r'Forex Tools',
-        
-        # Links and images
-        r'\[ Trade Today \]',
-        r'https://ad\.doubleclick\.net.*?',
-        r'!\[pepperstone-markets-limited \]\(',
-        
-        # Language options
-        r'Translate English.*?Traditional Chinese\)',
-        r'English.*?Traditional Chinese\)',
-        r'1\. English.*?18\. 繁體中文 \(Traditional Chinese\)',
+        r'Did this content help you\?.*?',
+        r'About \*\*Dr\. Pipslow\*\*.*?$',
+        r'Follow us on.*?$',
+        r'Share:.*?$',
+        r'Comments.*?$',
+        r'Trade Today.*?$',
     ]
     
     # Remove unwanted content
     for pattern in navigation_patterns:
         text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
     
-    # Clean up whitespace first pass
-    text = re.sub(r'\s+', ' ', text)
-    text = text.strip()
+    # Extract article title and date for news articles
+    title = ""
+    date = ""
     
-    # Navigation markers for content cutoff
-    navigation_markers = [
-        'ADVERTISEMENT',
-        'Broker Reviews',
-        'Press Releases',
-        'Partner Center',
-        'Sign In',
-        'Try It Out',
-        'Plus More',
-        'Already a Premium member?',
-        'Share this article',
-        'Copyright',
-        'Learn Forex',
-        'Risk Warning',
-        'CFDs are complex',
-    ]
+    title_match = re.search(r'# ([^\n]+)', text)
+    if title_match:
+        title = title_match.group(1).strip()
     
-    # Find earliest navigation marker and cut text there
-    earliest_marker_pos = len(text)
-    for marker in navigation_markers:
-        pos = text.find(marker)
-        if pos != -1 and pos < earliest_marker_pos:
-            earliest_marker_pos = pos
+    date_match = re.search(r'NEWS \| (\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2})', text)
+    if date_match:
+        date = date_match.group(1).strip()
     
-    if earliest_marker_pos < len(text):
-        text = text[:earliest_marker_pos]
+    # Clean up HTML tags and markdown formatting
+    text = re.sub(r'<[^>]*>', '', text)
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
     
-    # Restore preserved market data sections
-    preserved_sections.sort(key=lambda x: x[0])
-    final_text_parts = []
-    last_end = 0
+    # Remove image references but preserve captions
+    text = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', text)
+    text = re.sub(r'!([A-Z][^!]+)', r'\n\nImage: \1\n\n', text)  # Convert to image captions
     
-    # Add main content
-    if text.strip():
-        final_text_parts.append(text.strip())
+    # Find the main article content based on article type
+    if is_financial_article and (title_match or date_match):
+        # For news articles like Natural Gas, extract content between title and end markers
+        main_content_start = 0
+        
+        if title_match:
+            main_content_start = title_match.end()
+        
+        # Find earliest end marker
+        end_markers = [
+            r'!\[pepperstone-markets-limited \]',
+            r'Trade Today',
+            r'Comments',
+            r'Popular',
+            r'About \*\*Dr\. Pipslow\*\*'
+        ]
+        
+        main_content_end = len(text)
+        for marker in end_markers:
+            match = re.search(marker, text[main_content_start:], re.IGNORECASE)
+            if match and main_content_start + match.start() < main_content_end:
+                main_content_end = main_content_start + match.start()
+        
+        main_content = text[main_content_start:main_content_end].strip()
+    else:
+        # For advice articles like psychological journaling
+        article_patterns = [
+            r'Sure, keeping score.*?trading account\.',  # The psychological journal article
+            r'## \d+\.\s+.*?(?=##(?!\s+\d+\.)|$)',      # Numbered sections
+        ]
+        
+        main_content = text
+        for pattern in article_patterns:
+            matches = re.findall(pattern, text, re.DOTALL)
+            if matches:
+                main_content = " ".join(matches)
+                break
     
-    # Add preserved sections
-    for _, _, content in preserved_sections:
-        if content.strip():
-            final_text_parts.append(content.strip())
+    # Preserve headers and structure
+    main_content = re.sub(r'## \*\*([^*]+)\*\*', r'\n\n## \1', main_content)  # Bold headers
+    main_content = re.sub(r'##\s+(\d+\.\s+)', r'\n\n### \1', main_content)    # Numbered headers
+    main_content = re.sub(r'##\s+([^#\n]+)', r'\n\n## \1', main_content)      # Regular headers
     
-    # Join all parts
-    result = ' '.join(final_text_parts)
+    # Preserve bullet points
+    main_content = re.sub(r'^\s*\*\s+', '\n• ', main_content, flags=re.MULTILINE)
     
-    # Final cleanup
-    result = re.sub(r'\s+', ' ', result)
-    result = result.strip()
+    # Clean URLs and references
+    main_content = re.sub(r'https?://[^\s]+', '', main_content)
+    main_content = re.sub(r'www\.[^\s]+', '', main_content)
+    
+    # Clean up whitespace
+    main_content = re.sub(r'\s+', ' ', main_content)
+    main_content = main_content.strip()
+    
+    # Restore paragraph breaks
+    main_content = re.sub(r'(\. |\? |\! )([A-Z])', r'\1\n\n\2', main_content)
+    
+    # Format the final output
+    result = ""
+    if title:
+        result += f"# {title}\n\n"
+    if date:
+        result += f"Date: {date}\n\n"
+    result += main_content
     
     # Remove very short content
     if len(result) < 50:
