@@ -28,7 +28,7 @@ from utils.clean_markdown import clean_markdown
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
 CRAWL_INTERVAL_SECONDS = 3600  # Check sources every hour
-CLEANUP_INTERVAL_SECONDS = 3600  # Run cleanup every hour
+CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every hour
 
 def load_sources_config(config_path: str) -> list:
     """Loads the sources configuration from the YAML file."""
@@ -421,15 +421,15 @@ async def main_loop():
         logger.error("No valid sources loaded. Exiting.")
         return
     
-    # Initialize cleanup timer
     last_cleanup_time = datetime.now()
     
     try:
         while True:
             start_time = time.monotonic()
             logger.info("--- Starting New Cycle ---")
+            logger.info(f"Current time: {datetime.now()}")
             
-            # Check if cleanup is needed
+            # Check if cleanup is needed (every 24 hours)
             current_time = datetime.now()
             if (current_time - last_cleanup_time).total_seconds() >= CLEANUP_INTERVAL_SECONDS:
                 logger.info("Running scheduled cleanup...")
@@ -446,14 +446,18 @@ async def main_loop():
                 await asyncio.sleep(sleep_duration)
                 continue
             
-            # Crawl sources (with B1 optimization - process one at a time)
+            # Crawl sources (run every hour)
             logger.info(f"Starting crawl cycle for {len(sources)} sources...")
             crawl_results = []
             for source in sources:
-                result = await crawl_source(source)
-                crawl_results.append(result)
-                # Small delay between sources to manage memory
-                await asyncio.sleep(5)
+                try:
+                    result = await crawl_source(source)
+                    crawl_results.append(result)
+                    # Small delay between sources to manage memory
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    logger.error(f"Error crawling source {source}: {e}")
+                    crawl_results.append((source, 0, 1))  # Count as failed
             
             # Summary
             logger.info("--- Crawl Cycle Summary ---")
@@ -464,21 +468,35 @@ async def main_loop():
                 total_processed += processed_count
                 total_failed += failure_count
             
-            logger.info(f"--- Cycle Statistics ---")
+            # Calculate success rate
+            success_rate = (total_processed/(total_processed+total_failed)*100) if (total_processed + total_failed) > 0 else 0
             logger.info(f"Total items processed: {total_processed}")
             logger.info(f"Total items failed: {total_failed}")
-            logger.info(f"Success rate: {(total_processed/(total_processed+total_failed)*100):.2f}% if total_processed + total_failed > 0 else 0}%")
+            logger.info(f"Success rate: {success_rate:.2f}%")
             
-            # Calculate and log time until next cleanup
+            # Calculate time until next cleanup
             time_until_cleanup = CLEANUP_INTERVAL_SECONDS - (datetime.now() - last_cleanup_time).total_seconds()
             logger.info(f"Next cleanup in: {time_until_cleanup/3600:.2f} hours")
             
-            # Sleep until next cycle
+            # Calculate next run time
             cycle_duration = time.monotonic() - start_time
             sleep_duration = max(0, CRAWL_INTERVAL_SECONDS - cycle_duration)
+            next_run_time = datetime.now() + timedelta(seconds=sleep_duration)
+            
             logger.info(f"Cycle finished in {cycle_duration:.2f} seconds")
+            logger.info(f"Next crawl cycle scheduled for: {next_run_time}")
             logger.info(f"Sleeping for {sleep_duration:.2f} seconds...")
+            
             await asyncio.sleep(sleep_duration)
+            
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal. Shutting down...")
+        await cleanup_old_data()
+        logger.info("Final cleanup completed. Shutting down...")
+    except Exception as e:
+        logger.error(f"Unexpected error in main loop: {e}")
+        import traceback
+        logger.error(f"Stack trace:\n{traceback.format_exc()}")
             
     except KeyboardInterrupt:
         logger.info("Received interrupt signal. Shutting down...")

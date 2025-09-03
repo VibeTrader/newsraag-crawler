@@ -1,193 +1,129 @@
 import re
 
 def clean_markdown(text: str) -> str:
-    """Enhanced content cleaning to improve similarity scores."""
+    """Enhanced content cleaning to improve similarity scores while preserving market data."""
     
-    # First, try to extract only the actual article content
-    # Look for content that starts with actual article text and ends before navigation
-    
-    # Remove all HTML tags completely
+    # First remove all HTML tags and clean up basic formatting
     text = re.sub(r'<[^>]*>', '', text)
-    
-    # Remove all markdown links and images
     text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
     text = re.sub(r'\[!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
-    
-    # Remove URLs
     text = re.sub(r'https?://[^\s]+', '', text)
     text = re.sub(r'www\.[^\s]+', '', text)
     
-    # Remove all navigation and site branding - be very aggressive
+    # Keep these market-related terms and their content
+    market_data_patterns = [
+        r'Technical analysis:.*?(?=##|$)',  # Keep technical analysis section
+        r'Market movers:.*?(?=##|$)',       # Keep market movers section
+        r'\*\*([^*]+)\*\*',                 # Keep bold text content
+        r'RSI.*?(?=\.|$)',                  # Keep RSI analysis
+        r'MACD.*?(?=\.|$)',                 # Keep MACD analysis
+        r'support.*?(?=\.|$)',              # Keep support levels
+        r'resistance.*?(?=\.|$)',           # Keep resistance levels
+        r'[0-9]+(?:\.[0-9]+)?%',           # Keep percentage values
+        r'\$[0-9]+(?:\.[0-9]+)?',          # Keep price values
+    ]
+    
+    # Store market data sections
+    preserved_sections = []
+    for pattern in market_data_patterns:
+        matches = re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        for match in matches:
+            preserved_sections.append((match.start(), match.end(), match.group(0)))
+    
+    # Remove navigation and promotional content
     navigation_patterns = [
-        # Specific patterns from the actual data
+        # Navigation and headers
         r'## Babypips \* AnalysisPremium \* News \* Trading \* Crypto \*',
         r'\* AnalysisPremium \* News \* Trading \* Crypto \*',
         r'\* Trading Systems \* Psychology \* Technical Analysis \* Trade Ideas \*',
-        r'\* Forex Glossary \*\*Forexpedia\*\*.*?View Quiz Library \*\(',
-        r'\* Learn Crypto \* Crypto Guides.*?Start Learning \*\(',
-        r'About \*\*.*?More from.*?',
-        r'TRADE NOW \*',
-        r'\* How to Trade Forex.*?Twitter',
-        r'Babypips helps new traders learn.*?Privacy Manager',
+        r'\* Ed Ponsi \* Wayne McDonell \* Brokers.*?Press Releases',
         r'MENU.*?COACHES',
         r'ASSETS.*?COACHES',
         r'LATEST NEWS.*?COACHES',
-        r'EDITORIAL SELECTION.*?COACHES',
-        r'TOP EVENTS.*?COACHES',
-        r'SECTIONS.*?COACHES',
-        r'MOST POPULAR.*?COACHES',
-        r'Share:.*?investment advice\.',
-        r'Information on these pages.*?investment advice\.',
-        r'FXStreet.*?investment advice\.',
-        r'Sponsor.*?investment advice\.',
-        r'Risk Warning.*?investment advice\.',
-        r'CFDs are complex instruments.*?investment advice\.',
-        r'Forex trading and trading.*?investment advice\.',
-        r'Recommended content.*?investment advice\.',
-        r'Editors\' Picks.*?investment advice\.',
-        r'Premium.*?investment advice\.',
-        r'AI 2\.0.*?investment advice\.',
+        r'Skip to main content.*?Newsletter',
+        
+        # Advertisements and promotions
+        r'ADVERTISEMENT.*?BELOW',
         r'SPONSORED.*?investment advice\.',
-        r'Forex MAJORS.*?investment advice\.',
-        r'Cryptocurrencies.*?investment advice\.',
-        r'Signatures.*?investment advice\.',
-        r'Best Brokers.*?investment advice\.',
-        r'English ©2025.*?investment advice\.',
         r'Ad-free experience.*?Sign In',
         r'Daily actionable short-term strategies',
         r'High-impact economic event trading guides',
         r'Unlimited Access access to MarketMilk',
+        r'This Article Is For Premium Members Only',
+        r'Become a Premium member.*?Plus More!',
+        
+        # Social and sharing
+        r'Share:.*?investment advice\.',
+        r'Share this article',
+        r'Follow us on',
+        r'Subscribe to',
+        r'Get the latest',
+        
+        # Legal and disclaimers
+        r'Information on these pages.*?investment advice\.',
+        r'Risk Warning.*?investment advice\.',
+        r'CFDs are complex instruments.*?investment advice\.',
+        r'Forex trading involves significant risk.*?investors\.',
+        r'Copyright.*?All rights reserved',
+        
+        # UI elements
         r'Plus More!',
         r'See what else is included!',
         r'Already a Premium member\?',
         r'Sign In',
         r'Partner Center',
-        r'Skip to main content.*?Newsletter',
         r'TRENDING:.*?',
         r'GET THE APP.*?',
-        r'Share this article',
-        r'Follow us on',
-        r'Subscribe to',
-        r'Get the latest',
         r'Read more',
         r'Continue reading',
         r'Click here',
         r'Learn more',
         r'View Menu',
+        r'Try It Out!',
+        
+        # Tools and features
         r'Risk-On / Risk-Off Meter',
         r'Correlation Calculator',
         r'Learn Forex',
         r'Forex Tools',
-        r'Company',
-        r'Copyright.*?All rights reserved',
-        r'This Article Is For Premium Members Only',
-        r'Become a Premium member.*?Plus More!',
-        r'Try It Out!',
-        r'Based on client assets.*?CFTC',
-        r'Forex trading involves significant risk.*?investors\.',
+        
+        # Links and images
         r'\[ Trade Today \]',
         r'https://ad\.doubleclick\.net.*?',
+        r'!\[pepperstone-markets-limited \]\(',
+        
+        # Language options
         r'Translate English.*?Traditional Chinese\)',
         r'English.*?Traditional Chinese\)',
         r'1\. English.*?18\. 繁體中文 \(Traditional Chinese\)',
-        r'ADVERTISEMENT.*?BELOW',  # Remove advertisement sections
-        r'Most Popular.*?$',  # Remove "Most Popular" sections
-        r'Tags:.*?$',  # Remove tags section
-        r'Text Size.*?$',  # Remove text size controls
-        r'investingLive.*?Log In',  # Remove login headers
-        r'\* Live Feed \* Forex \* Stocks \* Crypto.*?More',  # Remove navigation menus
-        r'Live \* Live Charts \* Live Quotes.*?Calendar',  # Remove live sections
-        r'Join investingLive.*?Twitter \* Facebook',  # Remove social media
-        r'Source link\.',  # Remove source links
-        r'## Top Brokers.*?$',  # Remove broker sections
-
     ]
     
+    # Remove unwanted content
     for pattern in navigation_patterns:
         text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
     
-    # Clean up whitespace
+    # Clean up whitespace first pass
     text = re.sub(r'\s+', ' ', text)
     text = text.strip()
     
-    # Cut off content at the first sign of navigation
+    # Navigation markers for content cutoff
     navigation_markers = [
-        '## Babypips',
-        '* AnalysisPremium',
-        '* Trading Systems',
-        '* Forex Glossary',
-        'About **',
-        'TRADE NOW',
-        'Babypips helps new traders learn',
-        'MENU',
-        'ASSETS',
-        'LATEST NEWS',
-        'Share:',
-        'Information on these pages',
-        'FXStreet',
-        'Sponsor',
-        'Risk Warning',
-        'CFDs are complex instruments',
-        'Forex trading and trading',
-        'Recommended content',
-        'Editors\' Picks',
-        'Premium',
-        'AI 2.0',
-        'SPONSORED',
-        'Forex MAJORS',
-        'Cryptocurrencies',
-        'Signatures',
-        'Best Brokers',
-        'English ©2025',
-        'Ad-free experience',
-        'Daily actionable short-term strategies',
-        'High-impact economic event trading guides',
-        'Unlimited Access access to MarketMilk',
-        'Plus More!',
-        'See what else is included!',
-        'Already a Premium member?',
-        'Sign In',
-        'Partner Center',
-        'Skip to main content',
-        'TRENDING:',
-        'GET THE APP',
-        'Share this article',
-        'Follow us on',
-        'Subscribe to',
-        'Get the latest',
-        'Read more',
-        'Continue reading',
-        'Click here',
-        'Learn more',
-        'View Menu',
-        'Risk-On / Risk-Off Meter',
-        'Correlation Calculator',
-        'Learn Forex',
-        'Forex Tools',
-        'Company',
-        'Copyright',
-        'This Article Is For Premium Members Only',
-        'Become a Premium member',
-        'Try It Out!',
-        'Based on client assets',
-        'Forex trading involves significant risk',
-        '[ Trade Today ]',
-        'https://ad.doubleclick.net',
-        'Translate English',
-        'English',
-        '1. English',
         'ADVERTISEMENT',
-        'Most Popular',
-        'Text Size',
-        'investingLive',
-        'Live Feed',
-        'Live Charts',
-        'Join investingLive',
-        'Source link',
-        'Top Brokers'
+        'Broker Reviews',
+        'Press Releases',
+        'Partner Center',
+        'Sign In',
+        'Try It Out',
+        'Plus More',
+        'Already a Premium member?',
+        'Share this article',
+        'Copyright',
+        'Learn Forex',
+        'Risk Warning',
+        'CFDs are complex',
     ]
     
-    # Find the earliest navigation marker and cut the text there
+    # Find earliest navigation marker and cut text there
     earliest_marker_pos = len(text)
     for marker in navigation_markers:
         pos = text.find(marker)
@@ -197,12 +133,29 @@ def clean_markdown(text: str) -> str:
     if earliest_marker_pos < len(text):
         text = text[:earliest_marker_pos]
     
-    # Clean up whitespace again
-    text = re.sub(r'\s+', ' ', text)
-    text = text.strip()
+    # Restore preserved market data sections
+    preserved_sections.sort(key=lambda x: x[0])
+    final_text_parts = []
+    last_end = 0
     
-    # Remove very short content (likely just noise)
-    if len(text) < 50:
+    # Add main content
+    if text.strip():
+        final_text_parts.append(text.strip())
+    
+    # Add preserved sections
+    for _, _, content in preserved_sections:
+        if content.strip():
+            final_text_parts.append(content.strip())
+    
+    # Join all parts
+    result = ' '.join(final_text_parts)
+    
+    # Final cleanup
+    result = re.sub(r'\s+', ' ', result)
+    result = result.strip()
+    
+    # Remove very short content
+    if len(result) < 50:
         return ""
     
-    return text
+    return result
