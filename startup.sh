@@ -29,11 +29,12 @@ echo "✅ Using Python: $($PYTHON_CMD --version)"
 
 # Install dependencies
 echo "📦 Installing Python dependencies..."
-$PYTHON_CMD -m pip install --user --upgrade pip
+# Avoid using --user flag for pip upgrade
+$PYTHON_CMD -m pip install --upgrade pip
 
 if [ -f "requirements.txt" ]; then
     echo "📋 Installing packages from requirements.txt..."
-    $PYTHON_CMD -m pip install --user -r requirements.txt
+    $PYTHON_CMD -m pip install -r requirements.txt
 else
     echo "❌ No requirements.txt found"
     exit 1
@@ -41,14 +42,20 @@ fi
 
 # Install Playwright
 echo "🌐 Setting up Playwright..."
-$PYTHON_CMD -m pip install --user playwright
-$PYTHON_CMD -m playwright install --with-deps chromium
+$PYTHON_CMD -m pip install playwright
+$PYTHON_CMD -m playwright install chromium
+# Avoid --with-deps as it might be causing issues in Azure environment
 echo "✅ Playwright setup complete"
 
 # Create necessary directories
 mkdir -p logs
 mkdir -p data
 
+# Make sure app binds to the right port
+echo "🔧 Setting PORT environment variable to $PORT"
+export PYTHONUNBUFFERED=1
+
 # Start the application
 echo "🚀 Starting NewsRagnarok Crawler..."
-exec $PYTHON_CMD main.py
+# Add more verbose output for debugging
+$PYTHON_CMD -u main.py
