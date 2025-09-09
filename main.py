@@ -15,6 +15,19 @@ from datetime import datetime
 import gc
 import psutil
 import os
+from contextlib import nullcontext
+
+# Import monitoring components
+from monitoring import init_monitoring
+from monitoring.metrics import get_metrics
+from monitoring.health_check import get_health_check
+from monitoring.duplicate_detector import get_duplicate_detector
+from monitoring.health_handler import EnhancedHealthHandler
+
+# Import monitoring modules
+from monitoring.metrics import get_metrics
+from monitoring.lifecycle import create_lifecycle_manager
+from monitoring.api import start_monitoring_server
 # Import our modules
 from clients.vector_client import VectorClient
 from utils.azure_utils import check_azure_connection, upload_json_to_azure
@@ -30,14 +43,22 @@ from utils.clean_markdown import clean_markdown
 # Define path to config
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
-CRAWL_INTERVAL_SECONDS = 3600  # Check sources every hour
+CRAWL_INTERVAL_SECONDS = 300  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every hour
 
 def log_memory_usage():
-    """Log current memory usage."""
+    """Log current memory usage and record metrics."""
     process = psutil.Process(os.getpid())
     mem_info = process.memory_info()
-    logger.info(f"Memory usage: {mem_info.rss / 1024 / 1024:.2f} MB")
+    rss_mb = mem_info.rss / 1024 / 1024
+    virtual_mb = process.memory_info().vms / 1024 / 1024
+    
+    # Log to console
+    logger.info(f"Memory usage: {rss_mb:.2f} MB (RSS), {virtual_mb:.2f} MB (Virtual)")
+    
+    # Record in metrics
+    metrics = get_metrics()
+    metrics.record_memory_usage(rss_mb, virtual_mb)
 
 def load_sources_config(config_path: str) -> list:
     """Loads the sources configuration from the YAML file."""
@@ -266,6 +287,17 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
         logger.info(f"   🔗 URL: {url}")
         logger.info(f"   📅 Published: {published}")
         
+        # Check for duplicates
+        duplicate_detector = get_duplicate_detector()
+        is_duplicate, duplicate_type = duplicate_detector.is_duplicate(article_data)
+        
+        if is_duplicate:
+            logger.info(f"🔍 Detected duplicate article: {title} (type: {duplicate_type})")
+            # Record duplicate in metrics
+            metrics = get_metrics()
+            metrics.record_duplicate_detected(source, url, duplicate_type)
+            return False
+        
         # Create article model
         article = OutputModel(
             title=title,
@@ -300,6 +332,9 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
             )
             if not success:
                 logger.error(f"Azure upload failed for {url}: {msg}")
+                # Update health check for Azure
+                health_check = get_health_check()
+                health_check.update_dependency_status("azure", False, msg)
         
         # Index in Qdrant
         vector_client = None
@@ -321,13 +356,28 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
             logger.info(f"   📤 Qdrant add_document result: {add_result}")
             if add_result:
                 logger.info(f"✅ Successfully indexed: {title}")
+                
+                # Record successful processing in metrics
+                metrics = get_metrics()
+                metrics.record_article_processed(source, url, True)
+                
                 return True
             else:
                 logger.error(f"❌ Failed to index: {title}")
+                
+                # Record failure in metrics
+                metrics = get_metrics()
+                metrics.record_article_processed(source, url, False, "Qdrant indexing failed")
+                
                 return False
                 
         except Exception as e:
             logger.error(f"Error indexing article {title}: {e}")
+            
+            # Record failure in metrics
+            metrics = get_metrics()
+            metrics.record_article_processed(source, url, False, str(e))
+            
             return False
         finally:
             if vector_client:
@@ -335,6 +385,17 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
                 
     except Exception as e:
         logger.error(f"Error processing article: {e}")
+        
+        # Record error in metrics if we have enough info
+        if 'source' in article_data and 'url' in article_data:
+            metrics = get_metrics()
+            metrics.record_article_processed(
+                article_data['source'], 
+                article_data['url'], 
+                False, 
+                str(e)
+            )
+        
         return False
 
 async def crawl_source(source_config: dict) -> tuple:
@@ -348,6 +409,9 @@ async def crawl_source(source_config: dict) -> tuple:
     processed_count = 0
     failure_count = 0
     
+    # Get metrics instance
+    metrics = get_metrics()
+    
     try:
         if source_type == 'rss':
             # Crawl RSS feed
@@ -357,24 +421,44 @@ async def crawl_source(source_config: dict) -> tuple:
             logger.info(f"Processing {len(articles)} articles from {source_name}")
             for i, article in enumerate(articles):
                 logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
+                
+                # Record start time for extraction performance tracking
+                start_time = time.time()
+                
+                # Process the article
                 success = await process_article(article)
+                
+                # Calculate extraction time
+                extraction_time = time.time() - start_time
+                
+                # Record metrics
+                metrics.record_article_processed(source_name, success, extraction_time)
+                
                 if success:
                     processed_count += 1
                     logger.info(f"✅ Successfully processed article {i+1}")
                 else:
                     failure_count += 1
                     logger.error(f"❌ Failed to process article {i+1}")
+                    # Record error in metrics
+                    metrics.record_error("article_processing_failed", source_name)
                     
         elif source_type == 'html':
             logger.warning(f"HTML crawling not implemented for {source_name}")
             failure_count += 1
+            # Record error in metrics
+            metrics.record_error("html_crawling_not_implemented", source_name)
         else:
             logger.warning(f"Unknown source type: {source_type}")
             failure_count += 1
+            # Record error in metrics
+            metrics.record_error("unknown_source_type", source_name)
             
     except Exception as e:
         logger.error(f"Error crawling source {source_name}: {e}")
         failure_count += 1
+        # Record error in metrics
+        metrics.record_error("source_crawl_error", source_name)
     
     logger.info(f"Finished crawling {source_name}: {processed_count} processed, {failure_count} failed")
     return source_name, processed_count, failure_count
@@ -382,26 +466,66 @@ async def crawl_source(source_config: dict) -> tuple:
 async def check_dependencies() -> bool:
     """Check if all dependencies are available."""
     logger.info("Checking dependencies...")
+    health_check = get_health_check()
+    
+    # Get App Insights for monitoring
+    from monitoring.app_insights import get_app_insights
+    app_insights = get_app_insights()
     
     # Check Redis (optional for now)
     redis_ok = True  # We'll implement this later if needed
+    health_check.update_dependency_status("redis", redis_ok)
+    if app_insights.enabled:
+        app_insights.track_dependency_status("redis", redis_ok)
     
     # Check Qdrant
     vector_client = None
     try:
+        start_time = time.time()
         vector_client = VectorClient()
         vector_ok = await vector_client.check_health()
+        duration_ms = (time.time() - start_time) * 1000
+        
         logger.info(f"- Qdrant vector service connection: {'OK' if vector_ok else 'FAILED'}")
+        health_check.update_dependency_status("qdrant", vector_ok)
+        
+        # Track in App Insights
+        if app_insights.enabled:
+            app_insights.track_dependency_status("qdrant", vector_ok, duration_ms)
     except Exception as e:
         logger.error(f"- Qdrant vector service connection: FAILED ({e})")
         vector_ok = False
+        health_check.update_dependency_status("qdrant", False, str(e))
+        
+        # Track failure in App Insights
+        if app_insights.enabled:
+            app_insights.track_dependency_status("qdrant", False)
+            app_insights.track_exception(e, {"dependency": "qdrant"})
     finally:
         if vector_client:
             await vector_client.close()
     
     # Check Azure
+    start_time = time.time()
     azure_ok = check_azure_connection()
+    duration_ms = (time.time() - start_time) * 1000
+    
     logger.info(f"- Azure Blob Storage connection: {'OK' if azure_ok else 'FAILED'}")
+    health_check.update_dependency_status("azure", azure_ok)
+    
+    # Track in App Insights
+    if app_insights.enabled:
+        app_insights.track_dependency_status("azure_blob", azure_ok, duration_ms)
+    
+    # Check OpenAI API by simply checking if keys are set
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    openai_ok = openai_api_key is not None
+    logger.info(f"- OpenAI API credentials: {'OK' if openai_ok else 'MISSING'}")
+    health_check.update_dependency_status("openai", openai_ok)
+    
+    # Track in App Insights
+    if app_insights.enabled:
+        app_insights.track_dependency_status("openai", openai_ok)
     
     return redis_ok and vector_ok and azure_ok
 
@@ -409,18 +533,72 @@ async def cleanup_old_data():
     """Clean up data older than 24 hours."""
     try:
         logger.info("Starting cleanup of old data...")
-        vector_client = create_vector_client()
         
-        # Delete documents older than 24 hours
-        result = await vector_client.delete_documents_older_than(hours=24)
-        if result:
-            logger.info(f"Cleanup completed successfully: {result}")
-        else:
-            logger.error("Cleanup failed")
+        # Get metrics for monitoring
+        metrics = get_metrics()
+        deletion_id = metrics.start_deletion_process()
+        
+        # Get App Insights for cloud monitoring
+        from monitoring.app_insights import get_app_insights
+        app_insights = get_app_insights()
+        
+        # Start App Insights operation
+        with app_insights.start_operation("cleanup_old_data") if app_insights.enabled else nullcontext():
+            vector_client = create_vector_client()
             
-        await vector_client.close()
+            # Delete documents older than 24 hours
+            result = await vector_client.delete_documents_older_than(hours=24)
+            if result:
+                logger.info(f"Cleanup completed successfully: {result}")
+                # Record deletion metrics
+                if 'deleted_count' in result:
+                    deleted_count = result['deleted_count']
+                    metrics.record_documents_deleted(deleted_count, "qdrant")
+                    
+                    # Track in App Insights
+                    if app_insights.enabled:
+                        app_insights.track_documents_deleted(deleted_count, "qdrant")
+                        
+                metrics.end_deletion_process(success=True)
+                
+                # Track completion in App Insights
+                if app_insights.enabled:
+                    duration = metrics.current_deletion.get("duration_seconds", 0) if hasattr(metrics, 'current_deletion') else 0
+                    app_insights.track_deletion_duration(duration)
+                    app_insights.track_event("cleanup_completed", {"deleted_count": str(deleted_count)})
+            else:
+                logger.error("Cleanup failed")
+                metrics.record_deletion_error("cleanup_failed", "Cleanup returned None", severity="error")
+                metrics.end_deletion_process(success=False)
+                
+                # Track failure in App Insights
+                if app_insights.enabled:
+                    app_insights.track_event("cleanup_failed")
+                
+            await vector_client.close()
+            
+        # Update health check
+        health_check = get_health_check()
+        health_check.update_dependency_status("qdrant", True)
+        
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
+        
+        # Record deletion error
+        metrics = get_metrics()
+        if hasattr(metrics, 'current_deletion'):
+            metrics.record_deletion_error("cleanup_exception", str(e), severity="critical")
+            metrics.end_deletion_process(success=False)
+        
+        # Track exception in App Insights
+        from monitoring.app_insights import get_app_insights
+        app_insights = get_app_insights()
+        if app_insights.enabled:
+            app_insights.track_exception(e, {"operation": "cleanup_old_data"})
+        
+        # Update health check
+        health_check = get_health_check()
+        health_check.update_dependency_status("qdrant", False, str(e))
 async def main_loop():
     """Main loop to periodically crawl sources."""
     logger.info("Starting NewsRagnarok main loop...")
@@ -447,10 +625,34 @@ async def main_loop():
             logger.info("--- Starting New Cycle ---")
             logger.info(f"Current time: {datetime.now()}")
             
+            # Start cycle metrics tracking
+            metrics = get_metrics()
+            cycle_id = metrics.start_cycle()
+            
+            # Get App Insights for cloud monitoring
+            from monitoring.app_insights import get_app_insights
+            app_insights = get_app_insights()
+            
+            # Track cycle start in App Insights
+            if app_insights.enabled:
+                app_insights.track_event("cycle_start", {"cycle_id": cycle_id})
+            
             # Log memory usage at cycle start if available
             if process:
                 mem_info = process.memory_info()
-                logger.info(f"Memory usage at cycle start: {mem_info.rss / 1024 / 1024:.2f} MB")
+                memory_mb = mem_info.rss / 1024 / 1024
+                logger.info(f"Memory usage at cycle start: {memory_mb:.2f} MB")
+                
+                # Update memory usage in metrics
+                metrics.update_memory_usage(memory_mb)
+                
+                # Track in App Insights
+                if app_insights.enabled:
+                    app_insights.track_memory_usage(memory_mb)
+                
+                # Update health check
+                health_check = get_health_check()
+                health_check.check_memory_usage()
             
             # Check if cleanup is needed (every 24 hours)
             current_time = datetime.now()
@@ -470,6 +672,11 @@ async def main_loop():
             # Check dependencies
             if not await check_dependencies():
                 logger.error("Dependency check failed. Skipping cycle.")
+                
+                # Record error in metrics
+                metrics.record_cycle_error("dependency_check_failed", "Dependency check failed, skipping cycle", "critical")
+                metrics.end_cycle(success=False)
+                
                 elapsed_time = time.monotonic() - start_time
                 sleep_duration = max(0, CRAWL_INTERVAL_SECONDS - elapsed_time)
                 logger.info(f"Sleeping for {sleep_duration:.2f} seconds...")
@@ -542,6 +749,23 @@ async def main_loop():
             logger.info(f"Next crawl cycle scheduled for: {next_run_time}")
             logger.info(f"Sleeping for {sleep_duration:.2f} seconds...")
             
+            # End cycle metrics tracking
+            metrics.end_cycle(success=True)
+            
+            # Track cycle completion in App Insights
+            if app_insights.enabled:
+                app_insights.track_cycle_duration(cycle_duration)
+                app_insights.track_event("cycle_completed", {
+                    "cycle_id": cycle_id,
+                    "duration_seconds": str(round(cycle_duration, 2)),
+                    "articles_processed": str(total_processed),
+                    "articles_failed": str(total_failed),
+                    "success_rate": str(round(success_rate, 2))
+                })
+            
+            # Save daily metrics
+            metrics.save_daily_metrics()
+            
             # Optional: log system resources before sleep
             if process:
                 try:
@@ -573,27 +797,54 @@ async def main_loop():
             logger.critical(f"Recovery failed: {recover_error}")
             
 class HealthHandler(BaseHTTPRequestHandler):
-    """Simple HTTP handler for Azure App Service health checks."""
+    """Enhanced HTTP handler for health checks with monitoring metrics."""
     
     def do_GET(self):
-        # Handle Azure App Service health checks
+        """Handle GET requests for health checks and metrics."""
+        # Get health check instance
+        from monitoring.health_check import get_health_check
+        health_check = get_health_check()
+        
+        # Basic health endpoint
         if self.path in ['/', '/health', '/api/health']:
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            response = {
-                "status": "healthy",
+            
+            # Get comprehensive health status
+            health_status = health_check.get_health_status()
+            
+            # Add basic service info
+            health_status.update({
                 "service": "NewsRagnarok Crawler",
-                "timestamp": datetime.now().isoformat(),
-                "message": "Crawler is running successfully",
                 "port": os.environ.get('PORT', '8000')
-            }
-            self.wfile.write(json.dumps(response).encode())
+            })
+            
+            self.wfile.write(json.dumps(health_status).encode())
+            
+        # Detailed metrics endpoint
+        elif self.path == '/metrics':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            
+            # Get metrics
+            from monitoring.metrics import get_metrics
+            metrics = get_metrics()
+            all_metrics = metrics.get_current_metrics()
+            
+            self.wfile.write(json.dumps(all_metrics).encode())
+            
+        # Default response
         else:
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
             self.wfile.write(b"NewsRagnarok Crawler is running")
+    
+    def log_message(self, format, *args):
+        """Override to use loguru instead of print."""
+        logger.debug(f"HEALTH SERVER: {self.address_string()} - {format % args}")
 
 def start_health_server():
     """Start HTTP server for Azure health checks."""
@@ -604,10 +855,14 @@ def start_health_server():
         # Try multiple ports if the first one is busy
         ports_to_try = [port, 8001, 8002, 8003, 8004]
         
+        logger.info("Starting enhanced health check server with monitoring metrics...")
+        
         for try_port in ports_to_try:
             try:
                 server = HTTPServer(('0.0.0.0', try_port), HealthHandler)
-                logger.info(f"🚀 Health check server started on port {try_port}")
+                logger.info(f"🚀 Enhanced health check server started on port {try_port}")
+                logger.info(f"   - Health endpoint: http://localhost:{try_port}/health")
+                logger.info(f"   - Metrics endpoint: http://localhost:{try_port}/metrics")
                 server.serve_forever()
                 break  # If we get here, server started successfully
             except OSError as e:
@@ -626,11 +881,27 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NewsRagnarok Crawler (Simplified)")
     args = parser.parse_args()
     
+    # Initialize monitoring system
+    logger.info("🔍 Initializing monitoring system...")
+    from monitoring import init_monitoring
+    metrics, health_check, duplicate_detector, app_insights = init_monitoring()
+    logger.info("✅ Monitoring system initialized successfully")
+    
+    # Track application start event in App Insights
+    if app_insights.enabled:
+        app_insights.track_event("application_start", {
+            "version": "1.0.0",  # Update with your version
+            "environment": os.environ.get("ENVIRONMENT", "development")
+        })
+    
+    # Ensure data directories exist
+    os.makedirs(os.path.join(os.path.dirname(__file__), 'data', 'metrics'), exist_ok=True)
+    
     # Log Azure App Service configuration
     port = os.environ.get('PORT', '8000')
     logger.info(f"🌐 Azure App Service Configuration:")
     logger.info(f"   📡 PORT environment variable: {port}")
-    logger.info(f"   🚀 Starting health check server on port {port}")
+    logger.info(f"   🚀 Starting enhanced health check server on port {port}")
     
     # Start health check server IMMEDIATELY in a separate thread
     health_thread = threading.Thread(target=start_health_server, daemon=True)

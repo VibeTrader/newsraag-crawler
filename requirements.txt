@@ -43,3 +43,9 @@ azure-identity>=1.15.0
 
 # Async support
 aiohttp>=3.10.5
+
+# Monitoring - Azure Application Insights
+opencensus-ext-azure>=1.1.9
+opencensus-ext-logging>=0.1.0
+opencensus-ext-requests>=0.1.0
+applicationinsights>=0.11.11

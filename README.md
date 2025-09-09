@@ -35,6 +35,7 @@ python main.py
 - ✅ Azure Blob Storage archival
 - ✅ Redis caching
 - ✅ Configurable sources
+- ✅ Comprehensive monitoring with Azure Application Insights
 
 ## 📊 Data Sources
 
@@ -49,6 +50,8 @@ python main.py
 - ✅ No browser dependencies
 - ✅ Simple RSS parsing
 - ✅ Easy to extend
+- ✅ Comprehensive monitoring
+- ✅ Duplicate detection
 
 ## 🔗 Dependencies
 
@@ -56,6 +59,18 @@ python main.py
 - Redis (caching)
 - Azure Blob Storage (archival)
 - Feedparser (RSS parsing)
+- Azure Application Insights (monitoring)
+
+## 📊 Monitoring
+
+The crawler includes comprehensive monitoring capabilities:
+
+- Local metrics collection in JSON files
+- Azure Application Insights integration for cloud monitoring
+- Health check API for status monitoring
+- Duplicate detection to prevent redundant processing
+
+See the [Application Insights Setup Guide](docs/app_insights_setup.md) for details on configuring and using the monitoring system.
 
 
 
