@@ -40,12 +40,6 @@ def main():
         print("   - APPINSIGHTS_INSTRUMENTATIONKEY")
         return False
     
-    # Print configuration
-    print(f"✅ Azure Application Insights is configured.")
-    if app_insights.connection_string:
-        print(f"   Using connection string: {app_insights.connection_string[:20]}...")
-    else:
-        print(f"   Using instrumentation key: {app_insights.instrumentation_key[:10]}...")
     
     # Test sending various telemetry
     test_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"

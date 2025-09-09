@@ -45,4 +45,4 @@ azure-identity>=1.15.0
 aiohttp>=3.10.5
 
 # Monitoring - Azure Application Insights
-applicationinsights>=0.11.11
+applicationinsights>=0.11.8
