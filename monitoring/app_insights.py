@@ -17,25 +17,10 @@ class AppInsightsMonitoring:
         
         Args:
             instrumentation_key: Application Insights instrumentation key.
-                If None, loads from APPINSIGHTS_INSTRUMENTATIONKEY or extracts from 
-                APPLICATIONINSIGHTS_CONNECTION_STRING environment variable.
+                If None, loads from APPINSIGHTS_INSTRUMENTATIONKEY environment variable.
         """
-        # Try to get instrumentation key from various sources
-        self.instrumentation_key = instrumentation_key
-        
-        if not self.instrumentation_key:
-            # Try direct environment variable
-            self.instrumentation_key = os.getenv("APPINSIGHTS_INSTRUMENTATIONKEY")
-            
-        if not self.instrumentation_key:
-            # Try to extract from connection string
-            connection_string = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
-            if connection_string and "InstrumentationKey=" in connection_string:
-                parts = connection_string.split(';')
-                for part in parts:
-                    if part.startswith("InstrumentationKey="):
-                        self.instrumentation_key = part.replace("InstrumentationKey=", "").strip()
-                        break
+        # Try to get instrumentation key from environment variable
+        self.instrumentation_key = instrumentation_key or os.getenv("APPINSIGHTS_INSTRUMENTATIONKEY")
         
         if not self.instrumentation_key:
             logger.warning("Application Insights instrumentation key not set. Monitoring disabled.")

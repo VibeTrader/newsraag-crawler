@@ -13,23 +13,17 @@ This document explains how to set up Azure Application Insights for your NewsRag
    - Select a region close to your application deployment
    - Click "Review + create", then "Create"
 
-## 2. Get the Connection String or Instrumentation Key
+## 2. Get the Instrumentation Key
 
 1. Once your Application Insights resource is created, go to its overview page
-2. Look for either:
-   - **Connection String**: Under "Configure > Properties"
-   - **Instrumentation Key**: On the overview page
-3. Copy the connection string (preferred) or instrumentation key
+2. Look for the **Instrumentation Key** displayed on the overview page
+3. Copy the instrumentation key
 
 ## 3. Configure Your Environment
 
 1. Create or update your `.env` file in the root of the project
-2. Add one of the following lines:
+2. Add the following line with your instrumentation key:
    ```
-   # Option 1 (Preferred): Using Connection String
-   APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx;IngestionEndpoint=https://regionname.in.applicationinsights.azure.com/
-   
-   # Option 2: Using Instrumentation Key
    APPINSIGHTS_INSTRUMENTATIONKEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
    ```
 
