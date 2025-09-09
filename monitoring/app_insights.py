@@ -2,67 +2,65 @@
 Azure Application Insights integration for NewsRagnarok Crawler.
 """
 import os
+import logging
 import time
 from datetime import datetime
 from loguru import logger
-from opencensus.ext.azure.log_exporter import AzureLogHandler
-from opencensus.ext.azure.metrics_exporter import AzureMetricsExporter
-from opencensus.stats import aggregation as aggregation_module
-from opencensus.stats import measure as measure_module
-from opencensus.stats import stats as stats_module
-from opencensus.stats import view as view_module
-from opencensus.tags import tag_map as tag_map_module
-from opencensus.trace import config_integration
-from opencensus.ext.azure.trace_exporter import AzureExporter
-from opencensus.trace.samplers import ProbabilitySampler
-from opencensus.trace.tracer import Tracer
-import logging
+from applicationinsights import TelemetryClient
+from applicationinsights.logging import LoggingHandler
 
 class AppInsightsMonitoring:
     """Azure Application Insights integration for monitoring."""
     
-    def __init__(self, connection_string=None):
+    def __init__(self, instrumentation_key=None):
         """Initialize Application Insights monitoring.
         
         Args:
-            connection_string: Application Insights connection string.
-                If None, loads from APPLICATIONINSIGHTS_CONNECTION_STRING environment variable.
+            instrumentation_key: Application Insights instrumentation key.
+                If None, loads from APPINSIGHTS_INSTRUMENTATIONKEY or extracts from 
+                APPLICATIONINSIGHTS_CONNECTION_STRING environment variable.
         """
-        self.connection_string = connection_string or os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
-        self.instrumentation_key = os.getenv("APPINSIGHTS_INSTRUMENTATIONKEY")
+        # Try to get instrumentation key from various sources
+        self.instrumentation_key = instrumentation_key
         
-        if not self.connection_string and not self.instrumentation_key:
-            logger.warning("Application Insights connection string or instrumentation key not set. Monitoring disabled.")
+        if not self.instrumentation_key:
+            # Try direct environment variable
+            self.instrumentation_key = os.getenv("APPINSIGHTS_INSTRUMENTATIONKEY")
+            
+        if not self.instrumentation_key:
+            # Try to extract from connection string
+            connection_string = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
+            if connection_string and "InstrumentationKey=" in connection_string:
+                parts = connection_string.split(';')
+                for part in parts:
+                    if part.startswith("InstrumentationKey="):
+                        self.instrumentation_key = part.replace("InstrumentationKey=", "").strip()
+                        break
+        
+        if not self.instrumentation_key:
+            logger.warning("Application Insights instrumentation key not set. Monitoring disabled.")
             self.enabled = False
             return
             
         self.enabled = True
-        self.initialize_monitoring()
-        logger.info("Azure Application Insights monitoring initialized.")
-    
-    def initialize_monitoring(self):
-        """Initialize all monitoring components."""
+        self.client = TelemetryClient(self.instrumentation_key)
+        
+        # Enable live metrics
+        self.client.channel.sender.send_interval = 5.0  # send data every 5 seconds
+        
+        # Set common properties for all telemetry
+        self.client.context.properties['service'] = 'newsraag-crawler'
+        self.client.context.properties['environment'] = os.getenv('ENVIRONMENT', 'development')
+        
         # Configure logging integration
         self._configure_logging()
         
-        # Configure metrics
-        self._configure_metrics()
-        
-        # Configure distributed tracing
-        self._configure_tracing()
-        
-        # Set up tag map
-        self.tag_map = tag_map_module.TagMap()
-        self.tag_map.insert("service", "newsraag-crawler")
+        logger.info(f"Azure Application Insights monitoring initialized with key: {self.instrumentation_key[:8]}...")
     
     def _configure_logging(self):
         """Configure logging integration with Application Insights."""
         # Add Azure Log Handler to Python logging
-        if self.connection_string:
-            handler = AzureLogHandler(connection_string=self.connection_string)
-        else:
-            handler = AzureLogHandler(instrumentation_key=self.instrumentation_key)
-            
+        handler = LoggingHandler(self.instrumentation_key)
         handler.setLevel(logging.INFO)
         
         # Configure handler
@@ -91,89 +89,6 @@ class AppInsightsMonitoring:
         # Add the InterceptHandler to the standard library's root logger
         logging.getLogger().addHandler(InterceptHandler())
     
-    def _configure_metrics(self):
-        """Configure metrics integration with Application Insights."""
-        if self.connection_string:
-            self.metrics_exporter = AzureMetricsExporter(connection_string=self.connection_string)
-        else:
-            self.metrics_exporter = AzureMetricsExporter(instrumentation_key=self.instrumentation_key)
-            
-        self.stats = stats_module.stats
-        
-        # Define measures
-        self.measure_articles_discovered = measure_module.MeasureInt(
-            "articles_discovered", "Number of articles discovered from sources", "articles")
-        self.measure_articles_processed = measure_module.MeasureInt(
-            "articles_processed", "Number of articles successfully processed", "articles")
-        self.measure_articles_failed = measure_module.MeasureInt(
-            "articles_failed", "Number of articles that failed processing", "articles")
-        self.measure_duplicates_detected = measure_module.MeasureInt(
-            "duplicates_detected", "Number of duplicate articles detected", "articles")
-        self.measure_documents_deleted = measure_module.MeasureInt(
-            "documents_deleted", "Number of documents deleted during cleanup", "documents")
-        self.measure_cycle_duration = measure_module.MeasureFloat(
-            "cycle_duration", "Duration of crawl cycle in seconds", "s")
-        self.measure_deletion_duration = measure_module.MeasureFloat(
-            "deletion_duration", "Duration of deletion process in seconds", "s")
-        self.measure_memory_usage = measure_module.MeasureFloat(
-            "memory_usage", "Memory usage in MB", "MB")
-        
-        # Define views for each measure
-        articles_discovered_view = view_module.View(
-            "articles_discovered", "Number of articles discovered from sources",
-            [], self.measure_articles_discovered, aggregation_module.SumAggregation())
-        articles_processed_view = view_module.View(
-            "articles_processed", "Number of articles successfully processed",
-            [], self.measure_articles_processed, aggregation_module.SumAggregation())
-        articles_failed_view = view_module.View(
-            "articles_failed", "Number of articles that failed processing",
-            [], self.measure_articles_failed, aggregation_module.SumAggregation())
-        duplicates_detected_view = view_module.View(
-            "duplicates_detected", "Number of duplicate articles detected",
-            [], self.measure_duplicates_detected, aggregation_module.SumAggregation())
-        documents_deleted_view = view_module.View(
-            "documents_deleted", "Number of documents deleted during cleanup",
-            [], self.measure_documents_deleted, aggregation_module.SumAggregation())
-        cycle_duration_view = view_module.View(
-            "cycle_duration", "Duration of crawl cycle in seconds",
-            [], self.measure_cycle_duration, aggregation_module.LastValueAggregation())
-        deletion_duration_view = view_module.View(
-            "deletion_duration", "Duration of deletion process in seconds",
-            [], self.measure_deletion_duration, aggregation_module.LastValueAggregation())
-        memory_usage_view = view_module.View(
-            "memory_usage", "Memory usage in MB",
-            [], self.measure_memory_usage, aggregation_module.LastValueAggregation())
-        
-        # Register views
-        self.stats.view_manager.register_view(articles_discovered_view)
-        self.stats.view_manager.register_view(articles_processed_view)
-        self.stats.view_manager.register_view(articles_failed_view)
-        self.stats.view_manager.register_view(duplicates_detected_view)
-        self.stats.view_manager.register_view(documents_deleted_view)
-        self.stats.view_manager.register_view(cycle_duration_view)
-        self.stats.view_manager.register_view(deletion_duration_view)
-        self.stats.view_manager.register_view(memory_usage_view)
-        
-        # Register exporter
-        self.stats.view_manager.register_exporter(self.metrics_exporter)
-    
-    def _configure_tracing(self):
-        """Configure distributed tracing with Application Insights."""
-        # Set up the exporter
-        if self.connection_string:
-            self.exporter = AzureExporter(connection_string=self.connection_string)
-        else:
-            self.exporter = AzureExporter(instrumentation_key=self.instrumentation_key)
-            
-        # Configure the sampler - 100% of traces collected
-        self.sampler = ProbabilitySampler(1.0)
-        
-        # Create a tracer
-        self.tracer = Tracer(exporter=self.exporter, sampler=self.sampler)
-        
-        # Configure integration with popular packages
-        config_integration.trace_integrations(['requests'])
-    
     def track_metric(self, name, value, properties=None):
         """Track a custom metric.
         
@@ -186,19 +101,8 @@ class AppInsightsMonitoring:
             return
             
         properties = properties or {}
+        self.client.track_metric(name, value, properties=properties)
         
-        # Convert metric name to measure if available
-        if hasattr(self, f"measure_{name}"):
-            measure = getattr(self, f"measure_{name}")
-            mmap = self.stats.stats_recorder.new_measurement_map()
-            mmap.measure_int_put(measure, int(value) if isinstance(measure, measure_module.MeasureInt) else value)
-            mmap.record(self.tag_map)
-        else:
-            # Use logging if no specific measure exists
-            properties["metric_name"] = name
-            properties["metric_value"] = value
-            logging.getLogger().info(f"Custom metric: {name}={value}", extra={"custom_dimensions": properties})
-    
     def track_event(self, name, properties=None):
         """Track a custom event.
         
@@ -210,7 +114,7 @@ class AppInsightsMonitoring:
             return
             
         properties = properties or {}
-        logging.getLogger().info(f"Event: {name}", extra={"custom_dimensions": properties})
+        self.client.track_event(name, properties=properties)
     
     def track_exception(self, exception, properties=None):
         """Track an exception.
@@ -223,7 +127,7 @@ class AppInsightsMonitoring:
             return
             
         properties = properties or {}
-        logging.getLogger().exception(f"Exception: {str(exception)}", extra={"custom_dimensions": properties})
+        self.client.track_exception(type=type(exception), value=exception, properties=properties)
     
     def track_trace(self, message, severity=logging.INFO, properties=None):
         """Track a trace message.
@@ -237,21 +141,90 @@ class AppInsightsMonitoring:
             return
             
         properties = properties or {}
-        logging.getLogger().log(severity, message, extra={"custom_dimensions": properties})
+        self.client.track_trace(message, severity=severity, properties=properties)
+    
+    def track_request(self, name, url, success, duration_ms, properties=None):
+        """Track a request.
+        
+        Args:
+            name: Request name
+            url: Request URL
+            success: Whether the request was successful
+            duration_ms: Duration in milliseconds
+            properties: Optional properties dictionary
+        """
+        if not self.enabled:
+            return
+            
+        properties = properties or {}
+        self.client.track_request(name, url, success, duration_ms, properties=properties)
+    
+    def track_dependency(self, name, data, type_name, target, success, duration_ms, properties=None):
+        """Track a dependency call.
+        
+        Args:
+            name: Dependency name
+            data: Command or query executed
+            type_name: Dependency type
+            target: Dependency target
+            success: Whether the dependency call was successful
+            duration_ms: Duration in milliseconds
+            properties: Optional properties dictionary
+        """
+        if not self.enabled:
+            return
+            
+        properties = properties or {}
+        self.client.track_dependency(name, data, type_name, target, success, duration_ms, properties=properties)
     
     def start_operation(self, name):
-        """Start a new operation for distributed tracing.
+        """Start a new operation for tracking.
+        
+        This is a simplified version as the official SDK doesn't have full
+        operation context support. For advanced scenarios, consider using
+        OpenCensus.
         
         Args:
             name: Operation name
             
         Returns:
-            Span context manager
+            A simple context manager for timing
         """
         if not self.enabled:
-            return None
+            from contextlib import nullcontext
+            return nullcontext()
             
-        return self.tracer.span(name)
+        class OperationContext:
+            def __init__(self, client, name):
+                self.client = client
+                self.name = name
+                self.properties = {'operation_name': name}
+                self.start_time = None
+                
+            def __enter__(self):
+                self.start_time = time.time()
+                return self
+                
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if exc_type:
+                    self.client.track_exception(type=exc_type, value=exc_val, properties=self.properties)
+                
+                duration_ms = (time.time() - self.start_time) * 1000
+                self.client.track_request(self.name, url="operation://crawler", 
+                                          success=exc_type is None, 
+                                          duration=duration_ms,
+                                          properties=self.properties)
+        
+        return OperationContext(self.client, name)
+    
+    def flush(self):
+        """Flush all telemetry in the buffer."""
+        if not self.enabled:
+            return
+            
+        self.client.flush()
+    
+    # Crawler-specific convenience methods
     
     def track_articles_discovered(self, count=1, source=None):
         """Track articles discovered metric.
@@ -260,7 +233,12 @@ class AppInsightsMonitoring:
             count: Number of articles discovered
             source: Source name
         """
-        self.track_metric("articles_discovered", count, {"source": source} if source else None)
+        props = {"source": source} if source else None
+        self.track_metric("articles_discovered", count, props)
+        self.track_event("articles_discovered", {
+            "count": str(count),
+            "source": source or "unknown"
+        })
     
     def track_articles_processed(self, count=1, source=None, success=True):
         """Track articles processed metrics.
@@ -270,10 +248,21 @@ class AppInsightsMonitoring:
             source: Source name
             success: Whether processing was successful
         """
+        props = {"source": source} if source else None
+        
         if success:
-            self.track_metric("articles_processed", count, {"source": source} if source else None)
+            self.track_metric("articles_processed", count, props)
+            self.track_event("articles_processed", {
+                "count": str(count),
+                "source": source or "unknown",
+                "success": "true"
+            })
         else:
-            self.track_metric("articles_failed", count, {"source": source} if source else None)
+            self.track_metric("articles_failed", count, props)
+            self.track_event("articles_failed", {
+                "count": str(count),
+                "source": source or "unknown"
+            })
     
     def track_duplicates_detected(self, count=1, source=None, duplicate_type=None):
         """Track duplicates detected metric.
@@ -283,13 +272,18 @@ class AppInsightsMonitoring:
             source: Source name
             duplicate_type: Type of duplication (e.g., "url", "title")
         """
-        properties = {}
+        props = {}
         if source:
-            properties["source"] = source
+            props["source"] = source
         if duplicate_type:
-            properties["duplicate_type"] = duplicate_type
+            props["duplicate_type"] = duplicate_type
             
-        self.track_metric("duplicates_detected", count, properties or None)
+        self.track_metric("duplicates_detected", count, props or None)
+        self.track_event("duplicates_detected", {
+            "count": str(count),
+            "source": source or "unknown",
+            "type": duplicate_type or "unknown"
+        })
     
     def track_documents_deleted(self, count, storage_type=None):
         """Track documents deleted metric.
@@ -298,7 +292,12 @@ class AppInsightsMonitoring:
             count: Number of documents deleted
             storage_type: Storage type (e.g., "qdrant", "azure")
         """
-        self.track_metric("documents_deleted", count, {"storage_type": storage_type} if storage_type else None)
+        props = {"storage_type": storage_type} if storage_type else None
+        self.track_metric("documents_deleted", count, props)
+        self.track_event("documents_deleted", {
+            "count": str(count),
+            "storage_type": storage_type or "unknown"
+        })
     
     def track_cycle_duration(self, duration_seconds):
         """Track cycle duration metric.
@@ -337,12 +336,25 @@ class AppInsightsMonitoring:
             return
             
         props = properties or {}
-        props["dependency_name"] = dependency_name
-        props["success"] = "true" if success else "false"
-        if duration_ms is not None:
-            props["duration_ms"] = str(duration_ms)
+        if duration_ms is None:
+            duration_ms = 0
             
-        self.track_event("dependency_check", props)
+        # Track as both dependency and event for flexibility in querying
+        self.track_dependency(
+            name=dependency_name,
+            data="check_connection", 
+            type_name="dependency",
+            target=dependency_name,
+            success=success,
+            duration_ms=duration_ms,
+            properties=props
+        )
+        
+        self.track_event("dependency_check", {
+            "dependency_name": dependency_name,
+            "success": "true" if success else "false",
+            "duration_ms": str(duration_ms)
+        })
 
 # Global instance
 _app_insights = None

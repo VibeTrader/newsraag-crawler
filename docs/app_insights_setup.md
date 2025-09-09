@@ -99,7 +99,7 @@ If the test script fails to connect:
 3. **Verify SDK Installation**:
    - Confirm the required packages are installed:
      ```
-     pip install opencensus-ext-azure opencensus-ext-logging opencensus-ext-requests applicationinsights
+     pip install applicationinsights
      ```
 
 4. **Check for Errors**:

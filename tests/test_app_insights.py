@@ -82,6 +82,11 @@ def main():
             # Simulate some work
             time.sleep(1)
             app_insights.track_trace(f"Inside test operation: {test_id}")
+            
+        # Make sure all telemetry is sent
+        print("   Flushing telemetry...")
+        app_insights.flush()
+        time.sleep(1)  # Give it a moment to send
         
         # 6. Track exception
         print("   Sending test exception...")
@@ -101,6 +106,18 @@ def main():
         app_insights.track_cycle_duration(45.67)
         app_insights.track_deletion_duration(12.34)
         app_insights.track_memory_usage(256.78)
+        
+        # Track completion in App Insights
+        if app_insights.enabled:
+            app_insights.track_event("test_completed", {
+                "test_id": test_id,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Make sure all telemetry is sent
+            print("\n   Flushing all pending telemetry...")
+            app_insights.flush()
+            time.sleep(3)  # Give it a moment to send
         
         print("\n✅ Successfully sent test telemetry to Azure Application Insights!")
         print("   Note: It may take a few minutes for data to appear in the Azure portal.")

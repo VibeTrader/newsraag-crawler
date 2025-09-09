@@ -779,6 +779,14 @@ async def main_loop():
             
     except KeyboardInterrupt:
         logger.info("Received interrupt signal. Shutting down...")
+        
+        # Flush App Insights telemetry before exit
+        from monitoring.app_insights import get_app_insights
+        app_insights = get_app_insights()
+        if app_insights.enabled:
+            app_insights.track_event("application_shutdown", {"reason": "keyboard_interrupt"})
+            app_insights.flush()
+            
         await cleanup_old_data()
         logger.info("Final cleanup completed. Shutting down...")
     except Exception as e:
