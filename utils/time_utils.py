@@ -1,4 +1,6 @@
+
 from datetime import datetime, timezone
+from typing import Optional
 import pytz
 from loguru import logger
 
@@ -14,7 +16,7 @@ except Exception as e:
     logger.error(f"Unexpected error loading timezone {PST_TIMEZONE_IDENTIFIER} with pytz: {e}")
     PST = None
 
-def convert_to_pst(dt: datetime) -> datetime | None:
+def convert_to_pst(dt: datetime) -> Optional[datetime]:
     """Converts a timezone-aware datetime object to PST using pytz.
 
     Args:
@@ -39,7 +41,7 @@ def convert_to_pst(dt: datetime) -> datetime | None:
         logger.error(f"Error converting datetime {dt} to PST using pytz: {e}")
         return None
 
-def get_current_pst_time() -> datetime | None:
+def get_current_pst_time() -> Optional[datetime]:
     """Gets the current time in PST using pytz.
     
     Returns:
@@ -55,4 +57,4 @@ def get_current_pst_time() -> datetime | None:
         return utc_now.astimezone(PST)
     except Exception as e:
         logger.error(f"Error getting current PST time using pytz: {e}")
-        return None 
+        return None

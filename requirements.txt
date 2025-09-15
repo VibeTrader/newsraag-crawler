@@ -43,5 +43,6 @@ azure-identity>=1.15.0
 
 # Async support
 aiohttp>=3.10.5
+pyyaml
 
 applicationinsights>=0.11.8

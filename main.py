@@ -2,6 +2,7 @@ import time
 import asyncio
 import yaml
 import os
+import sys
 import argparse
 from loguru import logger
 import feedparser
@@ -43,7 +44,7 @@ from utils.clean_markdown import clean_markdown
 # Define path to config
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
-CRAWL_INTERVAL_SECONDS = 300  # Check sources every hour
+CRAWL_INTERVAL_SECONDS = 600  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every hour
 
 def log_memory_usage():
@@ -192,7 +193,7 @@ async def extract_full_content(url: str, rss_entry) -> str:
                     else:
                         logger.warning(f"Playwright extraction too short: {len(content)} chars")
         except Exception as e:
-            logger.warning(f"Playwright extraction failed: {e}")
+            logger.warning(f"Playwright extraction failed: {str(e)}")
         
         # Fallback to HTTP + BeautifulSoup
         logger.info(f"Falling back to HTTP extraction for: {url}")
@@ -269,7 +270,7 @@ async def extract_full_content(url: str, rss_entry) -> str:
         return content_text
         
     except Exception as e:
-        logger.warning(f"Error extracting full content from {url}: {e}")
+        logger.warning(f"Error extracting full content from {url}: {str(e)}")
         # Fall back to RSS summary
         return rss_entry.get('summary', '') or rss_entry.get('description', '')
 
@@ -352,6 +353,11 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
             doc_metadata = {k: v for k, v in doc_metadata.items() if v is not None}
             logger.info(f"   📊 Metadata: {doc_metadata}")
             
+            # Try to ensure collection exists before adding
+            logger.info("Ensuring Qdrant collection exists before adding document")
+            if hasattr(vector_client.client, "_ensure_collection_exists"):
+                await vector_client.client._ensure_collection_exists()
+            
             add_result = await vector_client.add_document(content, metadata=doc_metadata)
             logger.info(f"   📤 Qdrant add_document result: {add_result}")
             if add_result:
@@ -363,7 +369,7 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
                 
                 return True
             else:
-                logger.error(f"❌ Failed to index: {title}")
+                logger.error(f"❌ Failed to index: {title}, result was None")
                 
                 # Record failure in metrics
                 metrics = get_metrics()
@@ -885,8 +891,87 @@ def start_health_server():
     except Exception as e:
         logger.error(f"Failed to start health server: {e}")
 
+async def clear_qdrant_collection():
+    """Clear all documents from the Qdrant collection."""
+    logger.info("Starting Qdrant collection cleanup...")
+    try:
+        vector_client = VectorClient()
+        try:
+            logger.info("Attempting to clear all documents from Qdrant collection...")
+            result = await vector_client.clear_all_documents()
+            if result:
+                logger.info(f"Qdrant collection cleanup successful: {result}")
+                return True
+            else:
+                logger.error("Qdrant collection cleanup failed: received None result")
+                return False
+        finally:
+            await vector_client.close()
+    except Exception as e:
+        logger.error(f"Error during Qdrant collection cleanup: {str(e)}")
+        import traceback
+        logger.error(f"Stack trace: {traceback.format_exc()}")
+        return False
+
+async def recreate_qdrant_collection():
+    """Delete and recreate the Qdrant collection with proper configuration."""
+    logger.info("Starting Qdrant collection recreation...")
+    try:
+        from qdrant_client import QdrantClient
+        from qdrant_client.http import models
+        
+        url = os.getenv("QDRANT_URL")
+        api_key = os.getenv("QDRANT_API_KEY")
+        collection_name = os.getenv("QDRANT_COLLECTION_NAME", "news_articles")
+        
+        logger.info(f"Connecting to Qdrant at {url}")
+        client = QdrantClient(url=url, api_key=api_key)
+        
+        # Delete collection if it exists
+        try:
+            logger.info(f"Attempting to delete collection {collection_name}...")
+            client.delete_collection(collection_name=collection_name)
+            logger.info(f"Collection {collection_name} deleted successfully")
+        except Exception as e:
+            logger.warning(f"Error deleting collection (may not exist): {str(e)}")
+        
+        # Recreate collection with proper configuration
+        logger.info(f"Creating collection {collection_name}...")
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=models.VectorParams(
+                size=3072,  # text-embedding-3-large embedding size
+                distance=models.Distance.COSINE
+            )
+        )
+        
+        # Create payload indices
+        logger.info("Creating payload indices...")
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="publishDatePst",
+            field_schema=models.PayloadFieldSchema.DATETIME
+        )
+        
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="source",
+            field_schema=models.PayloadFieldSchema.KEYWORD
+        )
+        
+        logger.info(f"Collection {collection_name} recreated successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error during Qdrant collection recreation: {str(e)}")
+        import traceback
+        logger.error(f"Stack trace: {traceback.format_exc()}")
+        return False
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NewsRagnarok Crawler (Simplified)")
+    parser.add_argument("--clear-collection", action="store_true", help="Clear all documents from the Qdrant collection")
+    parser.add_argument("--recreate-collection", action="store_true", help="Delete and recreate the Qdrant collection")
     args = parser.parse_args()
     
     # Initialize monitoring system
@@ -894,6 +979,28 @@ if __name__ == "__main__":
     from monitoring import init_monitoring
     metrics, health_check, duplicate_detector, app_insights = init_monitoring()
     logger.info("✅ Monitoring system initialized successfully")
+    
+    # Check if we need to perform collection cleanup or recreation
+    if args.clear_collection or args.recreate_collection:
+        if args.recreate_collection:
+            logger.info("Recreate collection flag detected, recreating Qdrant collection...")
+            success = asyncio.run(recreate_qdrant_collection())
+            if success:
+                logger.info("✅ Qdrant collection recreation completed successfully")
+            else:
+                logger.error("❌ Qdrant collection recreation failed")
+        elif args.clear_collection:
+            logger.info("Clear collection flag detected, clearing Qdrant collection...")
+            success = asyncio.run(clear_qdrant_collection())
+            if success:
+                logger.info("✅ Qdrant collection cleanup completed successfully")
+            else:
+                logger.error("❌ Qdrant collection cleanup failed")
+        
+        # Exit after cleanup operations if requested
+        if not (args.clear_collection and not args.recreate_collection):
+            logger.info("Cleanup/recreation operations completed, exiting...")
+            sys.exit(0)
     
     # Track application start event in App Insights
     if app_insights.enabled:

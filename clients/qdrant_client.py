@@ -42,12 +42,18 @@ class QdrantClientWrapper:
         self.openai_client = None
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.openai_endpoint = os.getenv("OPENAI_BASE_URL", "https://vibetrader-llm-rag.cognitiveservices.azure.com/")
-        self.openai_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "embedding-stocks")
-        self.openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+        self.openai_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "embedding-stocks")
+        self.openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
         
         if self.openai_api_key:
             try:
                 from openai import AzureOpenAI
+                
+                # Log the configuration for debugging
+                logger.info(f"Initializing Azure OpenAI with:")
+                logger.info(f"  - API Version: {self.openai_api_version}")
+                logger.info(f"  - Endpoint: {self.openai_endpoint}")
+                logger.info(f"  - Deployment: {self.openai_deployment}")
                 
                 self.openai_client = AzureOpenAI(
                     api_version=self.openai_api_version,
@@ -56,7 +62,9 @@ class QdrantClientWrapper:
                 )
                 logger.info(f"Azure OpenAI client initialized for embeddings using deployment: {self.openai_deployment}")
             except Exception as e:
-                logger.error(f"Failed to initialize Azure OpenAI client: {e}")
+                logger.error(f"Failed to initialize Azure OpenAI client: {str(e)}")
+                import traceback
+                logger.error(f"Stack trace: {traceback.format_exc()}")
                 self.openai_client = None
         else:
             logger.warning("OPENAI_API_KEY not set. Embedding generation will fail.")
@@ -78,34 +86,47 @@ class QdrantClientWrapper:
                 logger.info(f"Creating collection: {self.collection_name}")
                 
                 # Create collection with proper configuration
-                self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=3072,  # text-embedding-3-large embedding size
-                        distance=models.Distance.COSINE
+                try:
+                    self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=models.VectorParams(
+                            size=3072,  # text-embedding-3-large embedding size
+                            distance=models.Distance.COSINE
+                        )
                     )
-                )
+                    logger.info(f"Successfully created collection {self.collection_name}")
+                except Exception as e:
+                    logger.error(f"Error creating collection {self.collection_name}: {str(e)}")
+                    # Continue execution as the collection might have been created by another process
                 
-                # Create payload index for efficient filtering
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="publishDatePst",
-                    field_schema=models.PayloadFieldSchema.DATETIME
-                )
+                # Create payload indices - wrapped in try/except to handle individual failures
+                try:
+                    self.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name="publishDatePst",
+                        field_schema=models.PayloadFieldSchema.DATETIME
+                    )
+                    logger.info(f"Created publishDatePst index for {self.collection_name}")
+                except Exception as e:
+                    logger.warning(f"Error creating publishDatePst index: {str(e)}")
                 
-                self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="source",
-                    field_schema=models.PayloadFieldSchema.KEYWORD
-                )
+                try:
+                    self.client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name="source",
+                        field_schema=models.PayloadFieldSchema.KEYWORD
+                    )
+                    logger.info(f"Created source index for {self.collection_name}")
+                except Exception as e:
+                    logger.warning(f"Error creating source index: {str(e)}")
                 
-                logger.info(f"Collection {self.collection_name} created successfully")
+                logger.info(f"Collection {self.collection_name} setup complete")
             else:
                 logger.info(f"Collection {self.collection_name} already exists")
                 
         except Exception as e:
-            logger.error(f"Error ensuring collection exists: {e}")
-            raise
+            logger.error(f"Error ensuring collection exists: {str(e)}")
+            # Don't re-raise the exception, as we want to continue execution
 
     async def close(self):
         """Closes the Qdrant client."""
@@ -135,20 +156,32 @@ class QdrantClientWrapper:
             Dictionary with status and document ID, or None on failure.
         """
         try:
+            # Ensure the collection exists
+            try:
+                await self._ensure_collection_exists()
+            except Exception as e:
+                logger.error(f"Error ensuring collection exists: {str(e)}")
+                # Continue anyway, as collection might already exist
+                
             # Generate embedding using Azure OpenAI
             if not self.openai_client:
                 logger.error("Azure OpenAI client not initialized. Cannot generate embeddings.")
                 return None
-                
-            response = self.openai_client.embeddings.create(
-                model=self.openai_deployment,
-                input=text_content
-            )
-            embedding = response.data[0].embedding
             
+            try:    
+                response = self.openai_client.embeddings.create(
+                    model=self.openai_deployment,
+                    input=text_content
+                )
+                embedding = response.data[0].embedding
+                logger.info(f"Successfully generated embedding with {len(embedding)} dimensions")
+            except Exception as e:
+                logger.error(f"Error generating embedding: {str(e)}")
+                return None
+                
             # Prepare payload
             payload = {
-                "text": text_content,
+                "text": text_content[:1000],  # Limit text size in payload
                 "text_length": len(text_content)
             }
             
@@ -158,38 +191,42 @@ class QdrantClientWrapper:
             
             # Generate unique ID (you might want to use a hash of content + metadata)
             import hashlib
-            content_hash = hashlib.md5(f"{text_content}{str(metadata)}".encode()).hexdigest()
+            content_hash = hashlib.md5(f"{text_content[:1000]}{str(metadata)}".encode()).hexdigest()
             
             # Upsert point (insert or update)
-            self.client.upsert(
-                collection_name=self.collection_name,
-                points=[
-                    models.PointStruct(
-                        id=content_hash,
-                        vector=embedding,  # embedding is already a list
-                        payload=payload
-                    )
-                ]
-            )
-            
-            logger.info(f"Successfully added document with ID: {content_hash}")
-            return {
-                "status": "success",
-                "document_id": content_hash,
-                "message": "Document added successfully"
-            }
+            try:
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=[
+                        models.PointStruct(
+                            id=content_hash,
+                            vector=embedding,  # embedding is already a list
+                            payload=payload
+                        )
+                    ]
+                )
+                
+                logger.info(f"Successfully added document with ID: {content_hash}")
+                return {
+                    "status": "success",
+                    "document_id": content_hash,
+                    "message": "Document added successfully"
+                }
+            except Exception as e:
+                logger.error(f"Error upserting point to Qdrant: {str(e)}")
+                return None
             
         except Exception as e:
-            logger.error(f"Error adding document to Qdrant: {e}")
+            logger.error(f"Error adding document to Qdrant: {str(e)}")
             return None
 
-    async def search_documents(self, query: str, limit: int = 10, score_threshold: float = 0.7) -> Optional[List[Dict[str, Any]]]:
+    async def search_documents(self, query: str, limit: int = 10, score_threshold: float = 0.3) -> Optional[List[Dict[str, Any]]]:
         """Searches for documents similar to the query.
         
         Args:
             query: The search query text.
             limit: Maximum number of results to return.
-            score_threshold: Minimum similarity score threshold.
+            score_threshold: Minimum similarity score threshold (default: 0.3).
             
         Returns:
             List of matching documents with scores, or None on failure.

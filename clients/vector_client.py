@@ -32,17 +32,39 @@ class VectorClient:
     async def add_document(self, text_content: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Add a document to the vector database."""
         try:
-            return await self.client.add_document(text_content, metadata)
+            if not text_content or len(text_content.strip()) < 50:
+                logger.warning(f"Text content too short or empty: {len(text_content if text_content else '')} chars")
+                return {
+                    "status": "error",
+                    "message": "Text content too short or empty"
+                }
+                
+            logger.info(f"Adding document to Qdrant (content length: {len(text_content)} chars)")
+            result = await self.client.add_document(text_content, metadata)
+            
+            if result:
+                logger.info(f"Successfully added document to Qdrant: {result.get('document_id', 'unknown ID')}")
+            else:
+                logger.error("Failed to add document to Qdrant: received None result")
+                
+            return result
         except Exception as e:
-            logger.error(f"Error adding document to Qdrant: {e}")
+            logger.error(f"Error adding document to Qdrant: {str(e)}")
+            import traceback
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return None
 
-    async def search_documents(self, query: str, limit: int = 10, score_threshold: float = 0.7) -> Optional[List[Dict[str, Any]]]:
+    async def search_documents(self, query: str, limit: int = 10, score_threshold: float = 0.3) -> Optional[List[Dict[str, Any]]]:
         """Search for documents similar to the query."""
         try:
+            if not query or len(query.strip()) < 2:
+                logger.warning(f"Query too short: '{query}'")
+                return None
+                
+            logger.info(f"Searching for: '{query}' with threshold {score_threshold}")
             return await self.client.search_documents(query, limit, score_threshold)
         except Exception as e:
-            logger.error(f"Error searching documents in Qdrant: {e}")
+            logger.error(f"Error searching documents in Qdrant: {str(e)}")
             return None
 
     async def delete_document(self, document_id: str) -> bool:
