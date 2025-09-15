@@ -143,3 +143,5 @@ The crawler exposes two API endpoints:
 - `/metrics` - Detailed metrics about crawler performance
 
 Access these endpoints at `http://localhost:8000/` when the crawler is running.
+
+
