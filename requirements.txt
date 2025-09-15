@@ -44,4 +44,4 @@ azure-identity>=1.15.0
 # Async support
 aiohttp>=3.10.5
 
-applicationinsights>=0.11.11
+applicationinsights>=0.11.8
