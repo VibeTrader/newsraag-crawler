@@ -31,12 +31,51 @@ class QdrantClientWrapper:
         if not self.api_key:
             raise ValueError("QDRANT_API_KEY environment variable is not configured.")
         
-        # Initialize Qdrant client
-        self.client = QdrantClient(
-            url=self.url,
-            api_key=self.api_key,
-            timeout=30.0
-        )
+        # Initialize Qdrant client with version-aware approach
+        import qdrant_client
+        from packaging import version
+        
+        # Get version safely with fallback
+        try:
+            if hasattr(qdrant_client, '__version__'):
+                qdrant_version_str = qdrant_client.__version__
+                qdrant_version = version.parse(qdrant_version_str)
+                logger.info(f"Using qdrant-client version: {qdrant_version_str}")
+                use_timeout = qdrant_version < version.parse("1.7.0")
+            else:
+                # If __version__ is not available, try pkg_resources
+                try:
+                    import pkg_resources
+                    qdrant_version_str = pkg_resources.get_distribution("qdrant-client").version
+                    qdrant_version = version.parse(qdrant_version_str)
+                    logger.info(f"Using qdrant-client version (from pkg_resources): {qdrant_version_str}")
+                    use_timeout = qdrant_version < version.parse("1.7.0")
+                except Exception:
+                    # If all version detection fails, assume newer version (no timeout)
+                    logger.warning("Could not detect qdrant-client version, assuming newer version")
+                    qdrant_version_str = "unknown"
+                    use_timeout = False
+        except Exception as e:
+            logger.warning(f"Error detecting qdrant-client version: {str(e)}, assuming newer version")
+            qdrant_version_str = "unknown"
+            use_timeout = False
+        
+        # Initialize client based on version detection
+        if not use_timeout:
+            # For newer versions, don't use timeout parameter
+            logger.info("Initializing QdrantClient without timeout parameter")
+            self.client = QdrantClient(
+                url=self.url,
+                api_key=self.api_key
+            )
+        else:
+            # For older versions, use timeout parameter
+            logger.info("Initializing QdrantClient with timeout parameter")
+            self.client = QdrantClient(
+                url=self.url,
+                api_key=self.api_key,
+                timeout=30.0
+            )
         
         # Initialize Azure OpenAI client for embeddings
         self.openai_client = None
@@ -87,6 +126,7 @@ class QdrantClientWrapper:
                 
                 # Create collection with proper configuration
                 try:
+                    # For all versions, create collection without timeout
                     self.client.create_collection(
                         collection_name=self.collection_name,
                         vectors_config=models.VectorParams(
@@ -221,24 +261,80 @@ class QdrantClientWrapper:
                     operation_timeout = 30 * (attempt + 1)  # Increase timeout with each retry
                     logger.info(f"Upserting to Qdrant with {operation_timeout}s timeout")
                     
-                    self.client.upsert(
-                        collection_name=self.collection_name,
-                        points=[
-                            models.PointStruct(
-                                id=content_hash,
-                                vector=embedding,  # embedding is already a list
-                                payload=payload
+                    # Determine the best way to call upsert based on client version
+                    try:
+                        # First try without any timeout parameters
+                        try:
+                            logger.info("Trying upsert without timeout parameters")
+                            self.client.upsert(
+                                collection_name=self.collection_name,
+                                points=[
+                                    models.PointStruct(
+                                        id=content_hash,
+                                        vector=embedding,  # embedding is already a list
+                                        payload=payload
+                                    )
+                                ]
                             )
-                        ],
-                        timeout=operation_timeout
-                    )
-                    
-                    logger.info(f"Successfully added document with ID: {content_hash}")
-                    return {
-                        "status": "success",
-                        "document_id": content_hash,
-                        "message": "Document added successfully"
-                    }
+                            # If we get here, upsert succeeded without timeout parameter
+                            logger.info(f"Successfully added document with ID: {content_hash} (no timeout parameter)")
+                            return {
+                                "status": "success",
+                                "document_id": content_hash,
+                                "message": "Document added successfully"
+                            }
+                        except Exception as e1:
+                            logger.warning(f"Upsert without parameters failed: {str(e1)}")
+                            
+                            # If first attempt fails, try with wait parameter
+                            try:
+                                logger.info("Trying upsert with wait=True parameter")
+                                self.client.upsert(
+                                    collection_name=self.collection_name,
+                                    points=[
+                                        models.PointStruct(
+                                            id=content_hash,
+                                            vector=embedding,  # embedding is already a list
+                                            payload=payload
+                                        )
+                                    ],
+                                    wait=True
+                                )
+                                # If we get here, upsert succeeded with wait parameter
+                                logger.info(f"Successfully added document with ID: {content_hash} (wait parameter)")
+                                return {
+                                    "status": "success",
+                                    "document_id": content_hash,
+                                    "message": "Document added successfully"
+                                }
+                            except Exception as e2:
+                                logger.warning(f"Upsert with wait parameter failed: {str(e2)}")
+                                
+                                # Last resort, try with timeout parameter
+                                logger.info("Trying upsert with timeout parameter as last resort")
+                                self.client.upsert(
+                                    collection_name=self.collection_name,
+                                    points=[
+                                        models.PointStruct(
+                                            id=content_hash,
+                                            vector=embedding,  # embedding is already a list
+                                            payload=payload
+                                        )
+                                    ],
+                                    timeout=operation_timeout
+                                )
+                                # If we get here, upsert succeeded with timeout parameter
+                                logger.info(f"Successfully added document with ID: {content_hash} (timeout parameter)")
+                                return {
+                                    "status": "success",
+                                    "document_id": content_hash,
+                                    "message": "Document added successfully"
+                                }
+                    except Exception as e:
+                        logger.error(f"All upsert attempts failed: {str(e)}")
+                        if attempt < max_retries - 1:
+                            continue  # Try again in the outer loop
+                        return None
                 except Exception as e:
                     logger.error(f"Error upserting point to Qdrant (attempt {attempt+1}): {str(e)}")
                     if attempt < max_retries - 1:

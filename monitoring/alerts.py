@@ -17,9 +17,13 @@ from monitoring.metrics import get_metrics
 from monitoring.health_check import get_health_check
 
 # Load environment variables
-SLACK_WEBHOOK = os.getenv("ALERT_SLACK_WEBHOOK", "")
+SLACK_WEBHOOK_RAW = os.getenv("ALERT_SLACK_WEBHOOK", "")
+# Clean webhook URL to avoid any issues
+SLACK_WEBHOOK = SLACK_WEBHOOK_RAW.strip() if SLACK_WEBHOOK_RAW else ""
 SLACK_ENABLED = os.getenv("ALERT_SLACK_ENABLED", "false").lower() == "true"
-SLACK_CHANNEL = os.getenv("ALERT_SLACK_CHANNEL", "#monitoring-alerts")
+SLACK_CHANNEL_RAW = os.getenv("ALERT_SLACK_CHANNEL", "monitoring-alerts")
+# Format channel name properly - add # if missing
+SLACK_CHANNEL = SLACK_CHANNEL_RAW if SLACK_CHANNEL_RAW.startswith('#') else f"#{SLACK_CHANNEL_RAW}"
 
 # Alert thresholds
 MEMORY_THRESHOLD_MB = float(os.getenv("ALERT_MEMORY_THRESHOLD_MB", "800"))
@@ -307,9 +311,17 @@ class AlertManager:
             
     def _send_slack_alert(self, alert_data: Dict[str, Any]):
         """Send an alert to Slack via webhook."""
-        if not SLACK_ENABLED or not SLACK_WEBHOOK:
+        if not SLACK_ENABLED:
+            logger.warning("Slack alerts not enabled in configuration")
+            return
+            
+        if not SLACK_WEBHOOK:
             logger.warning("Slack alerts enabled but webhook URL not configured")
             return
+            
+        # Log configuration for debugging
+        webhook_preview = SLACK_WEBHOOK[:20] + "..." if SLACK_WEBHOOK else "None"
+        logger.info(f"Slack configuration: enabled={SLACK_ENABLED}, channel={SLACK_CHANNEL}, webhook={webhook_preview}")
             
         try:
             # Create alert severity color
@@ -364,6 +376,9 @@ class AlertManager:
                     "value": f"```{data_details}```",
                     "short": False
                 })
+            
+            # Log the outgoing message
+            logger.info(f"Sending Slack alert: type={alert_data['type']}, message={alert_data['message']}")
             
             # Send to Slack webhook
             response = requests.post(

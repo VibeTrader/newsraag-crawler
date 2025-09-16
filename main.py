@@ -24,6 +24,7 @@ from monitoring.metrics import get_metrics
 from monitoring.health_check import get_health_check
 from monitoring.duplicate_detector import get_duplicate_detector
 from monitoring.health_handler import EnhancedHealthHandler
+from monitoring.alerts import get_alert_manager, trigger_test_alert
 
 # Import monitoring modules
 from monitoring.metrics import get_metrics
@@ -176,8 +177,18 @@ async def extract_full_content(url: str, rss_entry) -> str:
         # Method 1: Try Playwright first (if available) with enhanced error handling
         try:
             try:
-                from crawl4ai import AsyncWebCrawler, BrowserConfig
+                from crawl4ai import AsyncWebCrawler
+                from crawl4ai.browser_config import BrowserConfig
                 logger.info(f"Attempting Playwright extraction for: {url}")
+                
+                # Log version information for debugging
+                try:
+                    import playwright
+                    import crawl4ai
+                    logger.info(f"Using playwright version: {playwright.__version__}")
+                    logger.info(f"Using crawl4ai version: {crawl4ai.__version__}")
+                except Exception as ver_err:
+                    logger.warning(f"Error getting version info: {str(ver_err)}")
                 
                 browser_config = BrowserConfig(
                     headless=True,
@@ -229,7 +240,7 @@ async def extract_full_content(url: str, rss_entry) -> str:
             logger.warning(f"Outer Playwright extraction block error: {str(e)}")
         
         # Method 2: Fallback to HTTP + BeautifulSoup with enhanced error handling
-        logger.info(f"Falling back to HTTP extraction for: {url}")
+        logger.info(f"Using HTTP extraction for: {url}")
         
         # Headers to mimic a real browser
         headers = {
@@ -544,10 +555,19 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
                 else:
                     logger.error(f"❌ Failed to index: {title}, result was None")
                     
-                    # Record failure in metrics
+                    # Record failure in metrics and alert for Qdrant error
                     try:
                         metrics = get_metrics()
                         metrics.record_article_processed(source, url, False, "Qdrant indexing failed")
+                        
+                        # Send specific Qdrant alert
+                        metrics.record_qdrant_error(
+                            "Qdrant failed to index document - possible timeout parameter issue", 
+                            title, 
+                            "error"
+                        )
+                    except Exception as metrics_err:
+                        logger.warning(f"Error recording failure metrics: {metrics_err}")
                     except Exception as metrics_err:
                         logger.warning(f"Error recording failure metrics: {metrics_err}")
                     
@@ -560,10 +580,17 @@ async def process_article(article_data: Dict[str, Any]) -> bool:
             except Exception as e:
                 logger.error(f"Error indexing article {title} (attempt {attempt+1}): {e}")
                 
-                # Record failure in metrics
+                # Record failure in metrics with specific Qdrant alert
                 try:
                     metrics = get_metrics()
                     metrics.record_article_processed(source, url, False, str(e))
+                    
+                    # Send specific Qdrant error alert
+                    metrics.record_qdrant_error(
+                        f"Error indexing article in Qdrant: {str(e)}", 
+                        title, 
+                        "error"
+                    )
                 except Exception as metrics_err:
                     logger.warning(f"Error recording error metrics: {metrics_err}")
                 
@@ -1195,6 +1222,21 @@ if __name__ == "__main__":
     from monitoring import init_monitoring
     metrics, health_check, duplicate_detector, app_insights, alert_manager = init_monitoring()
     logger.info("✅ Monitoring system initialized successfully")
+    
+    # Test Slack alerts on startup to verify configuration
+    if os.getenv("ALERT_SLACK_ENABLED", "false").lower() == "true":
+        logger.info("🔔 Testing Slack alerts...")
+        try:
+            # Send a test alert to confirm Slack integration is working
+            trigger_test_alert(
+                message=f"NewsRagnarok startup test alert from {os.environ.get('COMPUTERNAME') or os.environ.get('HOSTNAME') or 'unknown'}",
+                alert_type="startup_test"
+            )
+            logger.info("✅ Slack test alert triggered successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to send Slack test alert: {str(e)}")
+    else:
+        logger.info("⚠️ Slack alerts are disabled. Set ALERT_SLACK_ENABLED=true to enable.")
     
     # Check if we need to perform collection cleanup or recreation
     if args.clear_collection or args.recreate_collection:

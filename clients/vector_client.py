@@ -65,7 +65,22 @@ class VectorClient:
                         await asyncio.sleep(retry_delay)
                         continue
                     else:
+                        # Final attempt failed - record error and alert
                         logger.error("Failed to add document to Qdrant after all retries: received None result")
+                        
+                        # Try to record a specific Qdrant error with alert
+                        try:
+                            from monitoring.metrics import get_metrics
+                            metrics = get_metrics()
+                            article_title = metadata.get('title', 'Unknown') if metadata else 'Unknown'
+                            metrics.record_qdrant_error(
+                                "Failed to add document to Qdrant after all retries: timeout parameter error", 
+                                article_title, 
+                                "error"
+                            )
+                        except Exception as alert_error:
+                            logger.error(f"Failed to record Qdrant error: {alert_error}")
+                        
                         return None
                         
             except Exception as e:
@@ -81,6 +96,20 @@ class VectorClient:
                     # All retries exhausted
                     import traceback
                     logger.error(f"All retries failed. Stack trace: {traceback.format_exc()}")
+                    
+                    # Try to record a specific Qdrant error with alert
+                    try:
+                        from monitoring.metrics import get_metrics
+                        metrics = get_metrics()
+                        article_title = metadata.get('title', 'Unknown') if metadata else 'Unknown'
+                        metrics.record_qdrant_error(
+                            f"Failed to add document to Qdrant after all retries: {str(e)}", 
+                            article_title, 
+                            "error"
+                        )
+                    except Exception as alert_error:
+                        logger.error(f"Failed to record Qdrant error: {alert_error}")
+                    
                     return None
         
         # This shouldn't be reached, but just in case

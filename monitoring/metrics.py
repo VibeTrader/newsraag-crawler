@@ -203,6 +203,110 @@ class CrawlerMetrics:
         else:
             logger.info(f"ERROR: {error_type} - {error_message or source or ''}")
             
+        # Try to trigger an alert for critical errors
+        try:
+            if severity in ["critical", "error"]:
+                from monitoring.alerts import get_alert_manager
+                alert_manager = get_alert_manager()
+                alert_manager._send_alert(
+                    error_type,
+                    f"Crawler error: {error_message or source or error_type}",
+                    {
+                        "error_type": error_type,
+                        "source": source,
+                        "message": error_message,
+                        "severity": severity
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Failed to send alert for error: {e}")
+            
+    def record_cycle_error(self, error_type: str, error_message: str = None, severity: str = "error"):
+        """Record an error that occurred during the current cycle.
+        
+        Args:
+            error_type: Type of error
+            error_message: Error message
+            severity: Error severity ("info", "warning", "error", "critical")
+        """
+        if not self.current_cycle_metrics:
+            logger.warning(f"No active cycle when recording error: {error_type}")
+            return
+            
+        self.current_cycle_metrics["errors"].append({
+            "type": error_type,
+            "severity": severity,
+            "message": error_message,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        # Log the error
+        if severity == "critical":
+            logger.critical(f"CYCLE ERROR: {error_type} - {error_message}")
+        elif severity == "error":
+            logger.error(f"CYCLE ERROR: {error_type} - {error_message}")
+        elif severity == "warning":
+            logger.warning(f"CYCLE ERROR: {error_type} - {error_message}")
+        else:
+            logger.info(f"CYCLE ERROR: {error_type} - {error_message}")
+            
+        # Try to trigger an alert for critical errors
+        try:
+            if severity in ["critical", "error"]:
+                from monitoring.alerts import get_alert_manager
+                alert_manager = get_alert_manager()
+                alert_manager._send_alert(
+                    error_type,
+                    f"Crawler error: {error_message}",
+                    {
+                        "error_type": error_type,
+                        "message": error_message,
+                        "severity": severity,
+                        "cycle_id": self.current_cycle_id
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Failed to send alert for error: {e}")
+            
+    def record_qdrant_error(self, error_message: str, article_title: str = None, severity: str = "error"):
+        """Record a Qdrant-specific error and trigger an alert.
+        
+        Args:
+            error_message: Error message
+            article_title: Title of the article being processed (optional)
+            severity: Error severity ("warning", "error", "critical")
+        """
+        error_type = "qdrant_operation_failed"
+        
+        # Record to current cycle if one is active
+        if self.current_cycle_metrics:
+            self.record_cycle_error(error_type, error_message, severity)
+        
+        # Log the error
+        if severity == "critical":
+            logger.critical(f"QDRANT ERROR: {error_message} - Article: {article_title or 'Unknown'}")
+        elif severity == "error":
+            logger.error(f"QDRANT ERROR: {error_message} - Article: {article_title or 'Unknown'}")
+        else:
+            logger.warning(f"QDRANT ERROR: {error_message} - Article: {article_title or 'Unknown'}")
+        
+        # Try to trigger an alert
+        try:
+            from monitoring.alerts import get_alert_manager
+            alert_manager = get_alert_manager()
+            alert_manager._send_alert(
+                "qdrant_error",
+                f"Qdrant operation failed: {error_message}",
+                {
+                    "error_message": error_message,
+                    "article_title": article_title,
+                    "severity": severity,
+                    "cycle_id": self.current_cycle_id if self.current_cycle_metrics else None
+                }
+            )
+        except Exception as e:
+            logger.error(f"Failed to send alert for Qdrant error: {e}")
+            
     def record_article_extraction(self, source: str, url: str, extraction_time: float, success: bool, error: Optional[str] = None):
         """Record metrics about article extraction.
         
