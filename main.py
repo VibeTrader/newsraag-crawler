@@ -172,26 +172,37 @@ async def extract_full_content(url: str, rss_entry) -> str:
                     "--disable-extensions",
                     "--disable-plugins",
                     "--disable-images",
-                    "--disable-javascript",  # Reduce memory usage
+                    # Removed: "--disable-javascript" to allow content to load properly
                     "--memory-pressure-off",
                     "--max_old_space_size=512"  # Limit memory
                 ]
             )
             
-            async with AsyncWebCrawler(config=browser_config) as crawler:
-                result = await crawler.arun(url)
-                if result and result.markdown and result.markdown.raw_markdown:
-                    content = result.markdown.raw_markdown
-                    if len(content) > 500:
-                        # Clean the content using clean_markdown
-                        cleaned_content = clean_markdown(content)
-                        if cleaned_content and len(cleaned_content) > 50:
-                            logger.info(f"Playwright extraction successful: {len(cleaned_content)} chars")
-                            return cleaned_content
+            try:
+                async with AsyncWebCrawler(config=browser_config) as crawler:
+                    # Set a timeout for the extraction
+                    result = await asyncio.wait_for(crawler.arun(url), timeout=30.0)
+                    if result and result.markdown and result.markdown.raw_markdown:
+                        content = result.markdown.raw_markdown
+                        if len(content) > 500:
+                            # Clean the content using clean_markdown
+                            try:
+                                cleaned_content = clean_markdown(content)
+                                if cleaned_content and len(cleaned_content) > 50:
+                                    logger.info(f"Playwright extraction successful: {len(cleaned_content)} chars")
+                                    return cleaned_content
+                                else:
+                                    logger.warning(f"Playwright extraction cleaned content too short: {len(cleaned_content) if cleaned_content else 0} chars")
+                            except Exception as clean_err:
+                                logger.warning(f"Error cleaning content: {clean_err}")
                         else:
-                            logger.warning(f"Playwright extraction cleaned content too short: {len(cleaned_content) if cleaned_content else 0} chars")
-                    else:
-                        logger.warning(f"Playwright extraction too short: {len(content)} chars")
+                            logger.warning(f"Playwright extraction too short: {len(content)} chars")
+            except asyncio.TimeoutError:
+                logger.warning(f"Playwright extraction timed out after 30 seconds for {url}")
+            except Exception as inner_e:
+                logger.warning(f"Playwright extraction inner error: {str(inner_e)}")
+        except ImportError:
+            logger.warning("crawl4ai not available, skipping Playwright extraction")
         except Exception as e:
             logger.warning(f"Playwright extraction failed: {str(e)}")
         
@@ -259,10 +270,36 @@ async def extract_full_content(url: str, rss_entry) -> str:
         # Clean the content using clean_markdown
         cleaned_content = clean_markdown(content_text)
         
-        # If we still don't have good content, fall back to RSS summary
-        if not cleaned_content or len(cleaned_content) < 200:  # Reverted to original minimum
-            logger.warning(f"Could not extract sufficient content from {url}, using RSS summary")
-            content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
+        # If we still don't have good content, try a minimal extraction method before falling back to RSS summary
+        if not cleaned_content or len(cleaned_content) < 200:
+            logger.warning(f"Regular extraction methods failed for {url}, attempting minimal extraction")
+            try:
+                # Use very basic extraction with minimal regex
+                simple_text = ""
+                try:
+                    # Remove scripts and styles with careful regex to avoid errors
+                    simple_text = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL)
+                    simple_text = re.sub(r'<style[^>]*>.*?</style>', '', simple_text, flags=re.DOTALL)
+                    
+                    # Remove all HTML tags with a more error-resistant approach
+                    simple_soup = BeautifulSoup(simple_text, 'html.parser')
+                    simple_text = simple_soup.get_text(separator=' ', strip=True)
+                    
+                    # Basic cleanup
+                    simple_text = re.sub(r'\s+', ' ', simple_text).strip()
+                except Exception as simple_e:
+                    logger.error(f"Error in minimal extraction: {simple_e}")
+                    # Continue with whatever we have
+                
+                if simple_text and len(simple_text) > 200:
+                    logger.info(f"Minimal extraction successful: {len(simple_text)} chars")
+                    content_text = simple_text
+                else:
+                    logger.warning(f"Could not extract sufficient content from {url}, using RSS summary")
+                    content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
+            except Exception as fallback_e:
+                logger.error(f"Fallback extraction failed: {fallback_e}")
+                content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
         else:
             content_text = cleaned_content
         

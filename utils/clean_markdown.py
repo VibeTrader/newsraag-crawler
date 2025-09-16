@@ -36,51 +36,68 @@ def clean_markdown(text: str) -> str:
         
         # Footer elements
         r'Comments.*?Franklin.*?(?=# |$)',
-        r'* No\. \d+ FX broker.*?(?=# |$)',
+        r'\* No\. \d+ FX broker.*?(?=# |$)', # Fixed: escaped asterisk
         r'Trade Today.*?(?=# |$)',
-        r'* How to Trade Forex.*?(?=# |$)',
+        r'\* How to Trade Forex.*?(?=# |$)', # Fixed: escaped asterisk
         
         # Other site elements
         r'_Did this content help you\?.*?current market conditions.*?(?=# |$)',
-        r'* Privacy Policy.*?(?=# |$)'
+        r'\* Privacy Policy.*?(?=# |$)' # Fixed: escaped asterisk
     ]
     
     # Apply navigation removal patterns
     for pattern in navigation_patterns:
-        text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
+        try:
+            text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
+        except re.error as e:
+            # If a regex pattern causes an error, log it and continue with next pattern
+            print(f"Regex error with pattern '{pattern}': {e}")
+            continue
     
     # STEP 2: Fix any data inconsistencies
     
     # Fix truncated price values 
-    text = re.sub(r'beyond \$3(?!\d)', r'beyond $3,500', text)
-    text = re.sub(r'above \$3(?!\d)', r'above $3,470', text)
+    try:
+        text = re.sub(r'beyond \$3(?!\d)', r'beyond $3,500', text)
+        text = re.sub(r'above \$3(?!\d)', r'above $3,470', text)
     
-    # Normalize price formats (European to US format)
-    text = re.sub(r'\$(\d+)\.(\d+)', r'$\1,\2', text)
+        # Normalize price formats (European to US format)
+        text = re.sub(r'\$(\d+)\.(\d+)', r'$\1,\2', text)
     
-    # Remove duplicate consecutive prices
-    text = re.sub(r'(\$[\d,\.]+)(\s+\1)+', r'\1', text)
+        # Remove duplicate consecutive prices
+        text = re.sub(r'(\$[\d,\.]+)(\s+\1)+', r'\1', text)
+    except re.error as e:
+        print(f"Regex error in price formatting: {e}")
     
     # STEP 3: Remove formatting but preserve structure
     
     # Remove image references but keep captions
-    text = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', text)
+    try:
+        text = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', text)
     
-    # Remove links but preserve text
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+        # Remove links but preserve text
+        text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
     
-    # Remove URLs
-    text = re.sub(r'https?://[^\s]+', '', text)
+        # Remove URLs
+        text = re.sub(r'https?://[^\s]+', '', text)
+    except re.error as e:
+        print(f"Regex error in formatting removal: {e}")
     
     # STEP 4: Remove duplicate sections
     
     # Remove duplicate title occurrences
     if title:
-        text = re.sub(f'# {re.escape(title)}', '', text)
+        try:
+            text = re.sub(f'# {re.escape(title)}', '', text)
+        except re.error as e:
+            print(f"Regex error removing duplicate title: {e}")
     
     # STEP 5: Clean up whitespace and structure
-    text = re.sub(r'\n{3,}', '\n\n', text)  # Normalize newlines
-    text = re.sub(r'\s{2,}', ' ', text)     # Normalize spaces
+    try:
+        text = re.sub(r'\n{3,}', '\n\n', text)  # Normalize newlines
+        text = re.sub(r'\s{2,}', ' ', text)     # Normalize spaces
+    except re.error as e:
+        print(f"Regex error cleaning whitespace: {e}")
     
     # STEP 6: Reconstruct the article with clean structure
     clean_article = ""
@@ -99,20 +116,23 @@ def clean_markdown(text: str) -> str:
     # STEP 7: Final cleanup of specific artifacts
     
     # Fix multiple asterisks
-    clean_article = re.sub(r'\*{3,}', '**', clean_article)
+    try:
+        clean_article = re.sub(r'\*{3,}', '**', clean_article)
     
-    # Remove any database metadata that got mixed in
-    clean_article = re.sub(r'text_length.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
-    clean_article = re.sub(r'publishDatePst.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
-    clean_article = re.sub(r'source.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
-    clean_article = re.sub(r'Vectors:.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
+        # Remove any database metadata that got mixed in
+        clean_article = re.sub(r'text_length.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
+        clean_article = re.sub(r'publishDatePst.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
+        clean_article = re.sub(r'source.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
+        clean_article = re.sub(r'Vectors:.*?(?=\n|$)', '', clean_article, flags=re.DOTALL)
     
-    # Final whitespace cleanup
-    clean_article = re.sub(r'\s+', ' ', clean_article)
-    clean_article = clean_article.strip()
+        # Final whitespace cleanup
+        clean_article = re.sub(r'\s+', ' ', clean_article)
+        clean_article = clean_article.strip()
     
-    # STEP 8: Restore paragraph breaks for readability
-    clean_article = re.sub(r'(\. |\? |\! )([A-Z])', r'\1\n\n\2', clean_article)
+        # STEP 8: Restore paragraph breaks for readability
+        clean_article = re.sub(r'(\. |\? |\! )([A-Z])', r'\1\n\n\2', clean_article)
+    except re.error as e:
+        print(f"Regex error in final cleanup: {e}")
     
     # Only return if we have substantial content
     if len(clean_article) < 100:
