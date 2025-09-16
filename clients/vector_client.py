@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import Optional, Dict, Any, List
 from loguru import logger
 from dotenv import load_dotenv
@@ -30,29 +31,61 @@ class VectorClient:
             return False
 
     async def add_document(self, text_content: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        """Add a document to the vector database."""
-        try:
-            if not text_content or len(text_content.strip()) < 50:
-                logger.warning(f"Text content too short or empty: {len(text_content if text_content else '')} chars")
-                return {
-                    "status": "error",
-                    "message": "Text content too short or empty"
-                }
+        """Add a document to the vector database with retry mechanism."""
+        # Retry configuration
+        max_retries = 3
+        retry_delay_base = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                if not text_content or len(text_content.strip()) < 50:
+                    logger.warning(f"Text content too short or empty: {len(text_content if text_content else '')} chars")
+                    return {
+                        "status": "error",
+                        "message": "Text content too short or empty"
+                    }
                 
-            logger.info(f"Adding document to Qdrant (content length: {len(text_content)} chars)")
-            result = await self.client.add_document(text_content, metadata)
-            
-            if result:
-                logger.info(f"Successfully added document to Qdrant: {result.get('document_id', 'unknown ID')}")
-            else:
-                logger.error("Failed to add document to Qdrant: received None result")
+                # Calculate current retry delay with exponential backoff
+                retry_delay = retry_delay_base ** attempt if attempt > 0 else 0
+                if attempt > 0:
+                    logger.info(f"Retry attempt {attempt}/{max_retries} after {retry_delay}s delay")
+                    
+                logger.info(f"Adding document to Qdrant (content length: {len(text_content)} chars)")
+                result = await self.client.add_document(text_content, metadata)
                 
-            return result
-        except Exception as e:
-            logger.error(f"Error adding document to Qdrant: {str(e)}")
-            import traceback
-            logger.error(f"Stack trace: {traceback.format_exc()}")
-            return None
+                if result:
+                    logger.info(f"Successfully added document to Qdrant: {result.get('document_id', 'unknown ID')}")
+                    # Successful operation - return result
+                    return result
+                else:
+                    # If we get None but no exception, log and retry
+                    logger.warning(f"Empty result from Qdrant (attempt {attempt+1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        logger.info(f"Waiting {retry_delay}s before retry...")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error("Failed to add document to Qdrant after all retries: received None result")
+                        return None
+                        
+            except Exception as e:
+                # Log the error with attempt information
+                logger.error(f"Error adding document to Qdrant (attempt {attempt+1}/{max_retries}): {str(e)}")
+                
+                # If we have retries left, wait and try again
+                if attempt < max_retries - 1:
+                    logger.info(f"Waiting {retry_delay}s before retry...")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                else:
+                    # All retries exhausted
+                    import traceback
+                    logger.error(f"All retries failed. Stack trace: {traceback.format_exc()}")
+                    return None
+        
+        # This shouldn't be reached, but just in case
+        logger.error("Failed to add document to Qdrant: exhausted all retries")
+        return None
 
     async def search_documents(self, query: str, limit: int = 10, score_threshold: float = 0.3) -> Optional[List[Dict[str, Any]]]:
         """Search for documents similar to the query."""

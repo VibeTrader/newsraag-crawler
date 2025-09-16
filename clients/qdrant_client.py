@@ -146,7 +146,7 @@ class QdrantClientWrapper:
             return False
 
     async def add_document(self, text_content: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        """Adds a document to the Qdrant collection.
+        """Adds a document to the Qdrant collection with retry mechanism.
         
         Args:
             text_content: The text content to embed and store.
@@ -155,70 +155,104 @@ class QdrantClientWrapper:
         Returns:
             Dictionary with status and document ID, or None on failure.
         """
-        try:
-            # Ensure the collection exists
+        # Retry configuration for cloud environments
+        max_retries = 3
+        retry_delay_base = 2  # seconds
+        
+        for attempt in range(max_retries):
+            retry_delay = retry_delay_base ** attempt if attempt > 0 else 0
+            if attempt > 0:
+                logger.info(f"Retry attempt {attempt}/{max_retries} for Qdrant operation after {retry_delay}s delay")
+                await asyncio.sleep(retry_delay)
+            
             try:
-                await self._ensure_collection_exists()
-            except Exception as e:
-                logger.error(f"Error ensuring collection exists: {str(e)}")
-                # Continue anyway, as collection might already exist
+                # Ensure the collection exists
+                try:
+                    await self._ensure_collection_exists()
+                except Exception as e:
+                    logger.error(f"Error ensuring collection exists (attempt {attempt+1}): {str(e)}")
+                    # Continue anyway, as collection might already exist
+                    
+                # Generate embedding using Azure OpenAI
+                if not self.openai_client:
+                    logger.error("Azure OpenAI client not initialized. Cannot generate embeddings.")
+                    if attempt < max_retries - 1:
+                        continue  # Try again (maybe client will be initialized)
+                    return None
                 
-            # Generate embedding using Azure OpenAI
-            if not self.openai_client:
-                logger.error("Azure OpenAI client not initialized. Cannot generate embeddings.")
-                return None
-            
-            try:    
-                response = self.openai_client.embeddings.create(
-                    model=self.openai_deployment,
-                    input=text_content
-                )
-                embedding = response.data[0].embedding
-                logger.info(f"Successfully generated embedding with {len(embedding)} dimensions")
-            except Exception as e:
-                logger.error(f"Error generating embedding: {str(e)}")
-                return None
-                
-            # Prepare payload
-            payload = {
-                "text": text_content[:1000],  # Limit text size in payload
-                "text_length": len(text_content)
-            }
-            
-            # Add metadata to payload
-            if metadata:
-                payload.update(metadata)
-            
-            # Generate unique ID (you might want to use a hash of content + metadata)
-            import hashlib
-            content_hash = hashlib.md5(f"{text_content[:1000]}{str(metadata)}".encode()).hexdigest()
-            
-            # Upsert point (insert or update)
-            try:
-                self.client.upsert(
-                    collection_name=self.collection_name,
-                    points=[
-                        models.PointStruct(
-                            id=content_hash,
-                            vector=embedding,  # embedding is already a list
-                            payload=payload
+                # Generate embedding with retry
+                embedding = None
+                for embed_attempt in range(2):  # Inner retry just for embedding
+                    try:    
+                        response = self.openai_client.embeddings.create(
+                            model=self.openai_deployment,
+                            input=text_content
                         )
-                    ]
-                )
+                        embedding = response.data[0].embedding
+                        logger.info(f"Successfully generated embedding with {len(embedding)} dimensions")
+                        break  # Success, exit the inner retry loop
+                    except Exception as e:
+                        logger.error(f"Error generating embedding (attempt {embed_attempt+1}): {str(e)}")
+                        if embed_attempt < 1:  # If not the last attempt
+                            await asyncio.sleep(1)  # Short delay before retry
                 
-                logger.info(f"Successfully added document with ID: {content_hash}")
-                return {
-                    "status": "success",
-                    "document_id": content_hash,
-                    "message": "Document added successfully"
+                if not embedding:
+                    logger.error("Failed to generate embedding after retries")
+                    if attempt < max_retries - 1:
+                        continue  # Try the outer loop again
+                    return None
+                    
+                # Prepare payload
+                payload = {
+                    "text": text_content[:1000],  # Limit text size in payload
+                    "text_length": len(text_content)
                 }
+                
+                # Add metadata to payload
+                if metadata:
+                    payload.update(metadata)
+                
+                # Generate unique ID (you might want to use a hash of content + metadata)
+                import hashlib
+                content_hash = hashlib.md5(f"{text_content[:1000]}{str(metadata)}".encode()).hexdigest()
+                
+                # Upsert point (insert or update) with increased timeout
+                try:
+                    operation_timeout = 30 * (attempt + 1)  # Increase timeout with each retry
+                    logger.info(f"Upserting to Qdrant with {operation_timeout}s timeout")
+                    
+                    self.client.upsert(
+                        collection_name=self.collection_name,
+                        points=[
+                            models.PointStruct(
+                                id=content_hash,
+                                vector=embedding,  # embedding is already a list
+                                payload=payload
+                            )
+                        ],
+                        timeout=operation_timeout
+                    )
+                    
+                    logger.info(f"Successfully added document with ID: {content_hash}")
+                    return {
+                        "status": "success",
+                        "document_id": content_hash,
+                        "message": "Document added successfully"
+                    }
+                except Exception as e:
+                    logger.error(f"Error upserting point to Qdrant (attempt {attempt+1}): {str(e)}")
+                    if attempt < max_retries - 1:
+                        continue  # Try again in the outer loop
+                    return None
+                
             except Exception as e:
-                logger.error(f"Error upserting point to Qdrant: {str(e)}")
-                return None
-            
-        except Exception as e:
-            logger.error(f"Error adding document to Qdrant: {str(e)}")
-            return None
+                logger.error(f"Error adding document to Qdrant (attempt {attempt+1}): {str(e)}")
+                if attempt < max_retries - 1:
+                    continue  # Try again
+        
+        # If we get here, all retries failed
+        logger.error("All retry attempts failed for adding document to Qdrant")
+        return None
 
     async def search_documents(self, query: str, limit: int = 10, score_threshold: float = 0.3) -> Optional[List[Dict[str, Any]]]:
         """Searches for documents similar to the query.

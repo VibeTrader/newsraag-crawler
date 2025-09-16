@@ -1,33 +1,30 @@
 """
-Initialization module for NewsRagnarok monitoring.
+Initialize the monitoring system for NewsRagnarok Crawler.
 """
 from loguru import logger
+from typing import Tuple
+
 from monitoring.metrics import get_metrics
 from monitoring.health_check import get_health_check
 from monitoring.duplicate_detector import get_duplicate_detector
 from monitoring.app_insights import get_app_insights
+from monitoring.alerts import get_alert_manager
 
-def init_monitoring():
-    """Initialize all monitoring components."""
+def init_monitoring() -> Tuple:
+    """Initialize all monitoring components.
+    
+    Returns:
+        Tuple of (metrics, health_check, duplicate_detector, app_insights, alert_manager)
+    """
     logger.info("Initializing monitoring system...")
     
-    # Initialize metrics collector
+    # Get or initialize components
     metrics = get_metrics()
-    logger.info("Metrics collector initialized")
-    
-    # Initialize health check system
     health_check = get_health_check()
-    logger.info("Health check system initialized")
-    
-    # Initialize duplicate detector
     duplicate_detector = get_duplicate_detector()
-    logger.info("Duplicate detector initialized")
-    
-    # Initialize Application Insights
     app_insights = get_app_insights()
-    if app_insights.enabled:
-        logger.info("Azure Application Insights initialized")
-    else:
-        logger.warning("Azure Application Insights not configured - skipping cloud monitoring")
+    alert_manager = get_alert_manager()
     
-    return metrics, health_check, duplicate_detector, app_insights
+    logger.info("Monitoring system initialized successfully")
+    
+    return metrics, health_check, duplicate_detector, app_insights, alert_manager

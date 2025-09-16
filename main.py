@@ -154,59 +154,81 @@ async def crawl_rss_feed(source_name: str, rss_url: str) -> List[Dict[str, Any]]
         return []
 
 async def extract_full_content(url: str, rss_entry) -> str:
-    """Extract full article content from URL using multiple methods."""
+    """Extract full article content from URL using multiple methods with enhanced error handling."""
     try:
         import re
+        from urllib.parse import urlparse
         
-        # Try Playwright first (if available) - B1 optimized
+        # Check if URL is valid first
         try:
-            from crawl4ai import AsyncWebCrawler, BrowserConfig
-            logger.info(f"Attempting Playwright extraction for: {url}")
-            
-            browser_config = BrowserConfig(
-                headless=True,
-                extra_args=[
-                    "--disable-gpu", 
-                    "--disable-dev-shm-usage", 
-                    "--no-sandbox",
-                    "--disable-extensions",
-                    "--disable-plugins",
-                    "--disable-images",
-                    # Removed: "--disable-javascript" to allow content to load properly
-                    "--memory-pressure-off",
-                    "--max_old_space_size=512"  # Limit memory
-                ]
-            )
-            
-            try:
-                async with AsyncWebCrawler(config=browser_config) as crawler:
-                    # Set a timeout for the extraction
-                    result = await asyncio.wait_for(crawler.arun(url), timeout=30.0)
-                    if result and result.markdown and result.markdown.raw_markdown:
-                        content = result.markdown.raw_markdown
-                        if len(content) > 500:
-                            # Clean the content using clean_markdown
-                            try:
-                                cleaned_content = clean_markdown(content)
-                                if cleaned_content and len(cleaned_content) > 50:
-                                    logger.info(f"Playwright extraction successful: {len(cleaned_content)} chars")
-                                    return cleaned_content
-                                else:
-                                    logger.warning(f"Playwright extraction cleaned content too short: {len(cleaned_content) if cleaned_content else 0} chars")
-                            except Exception as clean_err:
-                                logger.warning(f"Error cleaning content: {clean_err}")
-                        else:
-                            logger.warning(f"Playwright extraction too short: {len(content)} chars")
-            except asyncio.TimeoutError:
-                logger.warning(f"Playwright extraction timed out after 30 seconds for {url}")
-            except Exception as inner_e:
-                logger.warning(f"Playwright extraction inner error: {str(inner_e)}")
-        except ImportError:
-            logger.warning("crawl4ai not available, skipping Playwright extraction")
-        except Exception as e:
-            logger.warning(f"Playwright extraction failed: {str(e)}")
+            parsed_url = urlparse(url)
+            if not parsed_url.scheme or not parsed_url.netloc:
+                logger.warning(f"Invalid URL format: {url}")
+                return rss_entry.get('summary', '') or rss_entry.get('description', '')
+        except Exception as url_e:
+            logger.warning(f"Error parsing URL {url}: {url_e}")
+            return rss_entry.get('summary', '') or rss_entry.get('description', '')
         
-        # Fallback to HTTP + BeautifulSoup
+        # Get domain for debugging
+        domain = parsed_url.netloc
+        logger.info(f"Extracting content from domain: {domain}")
+        
+        # Method 1: Try Playwright first (if available) with enhanced error handling
+        try:
+            try:
+                from crawl4ai import AsyncWebCrawler, BrowserConfig
+                logger.info(f"Attempting Playwright extraction for: {url}")
+                
+                browser_config = BrowserConfig(
+                    headless=True,
+                    extra_args=[
+                        "--disable-gpu", 
+                        "--disable-dev-shm-usage", 
+                        "--no-sandbox",
+                        "--disable-extensions",
+                        "--disable-plugins",
+                        "--disable-images",
+                        # Removed: "--disable-javascript" to allow content to load properly
+                        "--memory-pressure-off",
+                        "--max_old_space_size=512"  # Limit memory
+                    ]
+                )
+                
+                try:
+                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                        # Set a timeout for the extraction
+                        result = await asyncio.wait_for(crawler.arun(url), timeout=30.0)
+                        if result and result.markdown and result.markdown.raw_markdown:
+                            content = result.markdown.raw_markdown
+                            if len(content) > 500:
+                                # Clean the content using clean_markdown with exception handling
+                                try:
+                                    cleaned_content = clean_markdown(content)
+                                    if cleaned_content and len(cleaned_content) > 50:
+                                        logger.info(f"Playwright extraction successful: {len(cleaned_content)} chars")
+                                        return cleaned_content
+                                    else:
+                                        logger.warning(f"Playwright extraction cleaned content too short: {len(cleaned_content) if cleaned_content else 0} chars")
+                                except Exception as clean_err:
+                                    logger.warning(f"Error cleaning content: {clean_err}")
+                                    # Return unprocessed content if clean_markdown fails
+                                    if len(content) > 200:
+                                        logger.info(f"Using unprocessed Playwright content: {len(content)} chars")
+                                        return content
+                            else:
+                                logger.warning(f"Playwright extraction too short: {len(content)} chars")
+                except asyncio.TimeoutError:
+                    logger.warning(f"Playwright extraction timed out after 30 seconds for {url}")
+                except Exception as inner_e:
+                    logger.warning(f"Playwright extraction inner error: {str(inner_e)}")
+            except ImportError:
+                logger.warning("crawl4ai not available, skipping Playwright extraction")
+            except Exception as e:
+                logger.warning(f"Playwright extraction failed: {str(e)}")
+        except Exception as e:
+            logger.warning(f"Outer Playwright extraction block error: {str(e)}")
+        
+        # Method 2: Fallback to HTTP + BeautifulSoup with enhanced error handling
         logger.info(f"Falling back to HTTP extraction for: {url}")
         
         # Headers to mimic a real browser
@@ -220,226 +242,368 @@ async def extract_full_content(url: str, rss_entry) -> str:
         }
         
         # Fetch the webpage
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=30) as response:
-                if response.status != 200:
-                    logger.warning(f"Failed to fetch {url}: HTTP {response.status}")
-                    return rss_entry.get('summary', '') or rss_entry.get('description', '')
-                
-                html_content = await response.text()
-        
-        # Parse with BeautifulSoup
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
-        # Remove script and style elements
-        for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
-            script.decompose()
-        
-        # Try different selectors for article content based on common patterns
-        content_selectors = [
-            'article',
-            '[class*="article"]',
-            '[class*="content"]',
-            '[class*="post"]',
-            '[class*="entry"]',
-            '.post-content',
-            '.entry-content',
-            '.article-content',
-            '.content-body',
-            '.story-body',
-            'main',
-            '.main-content'
-        ]
-        
-        content_text = ""
-        
-        # Try to find content using selectors
-        for selector in content_selectors:
-            elements = soup.select(selector)
-            if elements:
-                # Get text from the largest element (likely the main content)
-                largest_element = max(elements, key=lambda x: len(x.get_text()))
-                content_text = largest_element.get_text(separator=' ', strip=True)
-                if len(content_text) > 500:  # Reverted to original minimum
-                    break
-        
-        # If no content found with selectors, try to get all text
-        if not content_text or len(content_text) < 500:
-            content_text = soup.get_text(separator=' ', strip=True)
-        
-        # Clean the content using clean_markdown
-        cleaned_content = clean_markdown(content_text)
-        
-        # If we still don't have good content, try a minimal extraction method before falling back to RSS summary
-        if not cleaned_content or len(cleaned_content) < 200:
-            logger.warning(f"Regular extraction methods failed for {url}, attempting minimal extraction")
-            try:
-                # Use very basic extraction with minimal regex
-                simple_text = ""
+        html_content = ""
+        try:
+            async with aiohttp.ClientSession() as session:
                 try:
-                    # Remove scripts and styles with careful regex to avoid errors
-                    simple_text = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL)
-                    simple_text = re.sub(r'<style[^>]*>.*?</style>', '', simple_text, flags=re.DOTALL)
-                    
-                    # Remove all HTML tags with a more error-resistant approach
-                    simple_soup = BeautifulSoup(simple_text, 'html.parser')
-                    simple_text = simple_soup.get_text(separator=' ', strip=True)
-                    
-                    # Basic cleanup
-                    simple_text = re.sub(r'\s+', ' ', simple_text).strip()
-                except Exception as simple_e:
-                    logger.error(f"Error in minimal extraction: {simple_e}")
-                    # Continue with whatever we have
-                
-                if simple_text and len(simple_text) > 200:
-                    logger.info(f"Minimal extraction successful: {len(simple_text)} chars")
-                    content_text = simple_text
-                else:
-                    logger.warning(f"Could not extract sufficient content from {url}, using RSS summary")
-                    content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
-            except Exception as fallback_e:
-                logger.error(f"Fallback extraction failed: {fallback_e}")
-                content_text = rss_entry.get('summary', '') or rss_entry.get('description', '')
-        else:
-            content_text = cleaned_content
+                    async with session.get(url, headers=headers, timeout=30) as response:
+                        if response.status != 200:
+                            logger.warning(f"Failed to fetch {url}: HTTP {response.status}")
+                        else:
+                            html_content = await response.text()
+                except Exception as fetch_err:
+                    logger.warning(f"Error fetching URL {url}: {fetch_err}")
+        except Exception as session_err:
+            logger.warning(f"Session error for {url}: {session_err}")
         
-        logger.info(f"HTTP extraction successful: {len(content_text)} chars")
-        return content_text
+        # If we couldn't get HTML, return RSS summary
+        if not html_content:
+            logger.warning(f"Failed to get HTML content for {url}, using RSS summary")
+            return rss_entry.get('summary', '') or rss_entry.get('description', '')
         
+        # Method 2a: Try BeautifulSoup with careful selectors
+        try:
+            # Parse with BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+                script.decompose()
+            
+            # Try different selectors for article content based on common patterns
+            content_selectors = [
+                'article',
+                '[class*="article"]',
+                '[class*="content"]',
+                '[class*="post"]',
+                '[class*="entry"]',
+                '.post-content',
+                '.entry-content',
+                '.article-content',
+                '.content-body',
+                '.story-body',
+                'main',
+                '.main-content'
+            ]
+            
+            content_text = ""
+            
+            # Try to find content using selectors
+            for selector in content_selectors:
+                try:
+                    elements = soup.select(selector)
+                    if elements:
+                        # Get text from the largest element (likely the main content)
+                        largest_element = max(elements, key=lambda x: len(x.get_text()))
+                        candidate_text = largest_element.get_text(separator=' ', strip=True)
+                        if len(candidate_text) > 500:  # Only replace if significant content found
+                            content_text = candidate_text
+                            logger.info(f"Found content using selector '{selector}': {len(content_text)} chars")
+                            break
+                except Exception as selector_err:
+                    logger.warning(f"Error with selector '{selector}': {selector_err}")
+                    continue
+            
+            # Method 2b: If no content found with selectors, try to get all text
+            if not content_text or len(content_text) < 500:
+                try:
+                    logger.info("Using full page text extraction")
+                    content_text = soup.get_text(separator=' ', strip=True)
+                    logger.info(f"Full page text: {len(content_text)} chars")
+                except Exception as full_text_err:
+                    logger.warning(f"Error getting full page text: {full_text_err}")
+            
+            # Method 2c: Clean the content using clean_markdown with exception handling
+            cleaned_content = ""
+            try:
+                if content_text:
+                    cleaned_content = clean_markdown(content_text)
+                    logger.info(f"Cleaned BeautifulSoup content: {len(cleaned_content)} chars")
+            except Exception as clean_err:
+                logger.warning(f"Error cleaning BeautifulSoup content: {clean_err}")
+                # Use unprocessed content if clean_markdown fails
+                cleaned_content = content_text
+            
+            # Method 3: If we still don't have good content, try a minimal extraction method
+            if not cleaned_content or len(cleaned_content) < 200:
+                logger.warning(f"Regular extraction methods failed for {url}, attempting minimal extraction")
+                try:
+                    # Use very basic extraction with minimal regex to avoid errors
+                    simple_text = ""
+                    try:
+                        # Extract text using a very simple, error-resistant approach
+                        # Don't use regex here to avoid potential errors
+                        simple_soup = BeautifulSoup(html_content, 'html.parser')
+                        
+                        # Get text from paragraphs only
+                        paragraphs = simple_soup.find_all('p')
+                        if paragraphs:
+                            simple_text = ' '.join([p.get_text() for p in paragraphs])
+                        
+                        # If no paragraphs, just get all text
+                        if not simple_text:
+                            simple_text = simple_soup.get_text(separator=' ', strip=True)
+                        
+                        # Basic cleanup without regex
+                        simple_text = ' '.join(simple_text.split())
+                        logger.info(f"Minimal extraction result: {len(simple_text)} chars")
+                    except Exception as simple_e:
+                        logger.error(f"Error in minimal extraction: {simple_e}")
+                        # Continue with whatever we have
+                    
+                    if simple_text and len(simple_text) > 200:
+                        logger.info(f"Minimal extraction successful: {len(simple_text)} chars")
+                        return simple_text
+                    else:
+                        # Extract title + RSS summary as last resort
+                        title = ""
+                        try:
+                            title_tag = soup.find('title')
+                            if title_tag:
+                                title = title_tag.get_text()
+                        except:
+                            pass
+                        
+                        summary = rss_entry.get('summary', '') or rss_entry.get('description', '')
+                        combined = f"{title}\n\n{summary}" if title else summary
+                        
+                        logger.warning(f"All extraction methods failed, using title + RSS summary: {len(combined)} chars")
+                        return combined
+                except Exception as fallback_e:
+                    logger.error(f"Fallback extraction failed: {fallback_e}")
+                    return rss_entry.get('summary', '') or rss_entry.get('description', '')
+            
+            # Return the best content we have
+            if cleaned_content and len(cleaned_content) >= 200:
+                logger.info(f"HTTP extraction successful: {len(cleaned_content)} chars")
+                return cleaned_content
+            elif content_text and len(content_text) >= 200:
+                logger.info(f"HTTP extraction successful (uncleaned): {len(content_text)} chars")
+                return content_text
+            else:
+                logger.warning(f"HTTP extraction content too short, using RSS summary")
+                return rss_entry.get('summary', '') or rss_entry.get('description', '')
+            
+        except Exception as bs_err:
+            logger.error(f"BeautifulSoup extraction error: {bs_err}")
+            
+            # Method 4: Emergency fallback - use RSS summary
+            logger.warning(f"All extraction methods failed, using RSS summary as last resort")
+            return rss_entry.get('summary', '') or rss_entry.get('description', '')
+            
     except Exception as e:
         logger.warning(f"Error extracting full content from {url}: {str(e)}")
         # Fall back to RSS summary
         return rss_entry.get('summary', '') or rss_entry.get('description', '')
 
 async def process_article(article_data: Dict[str, Any]) -> bool:
-    """Process a single article - store in Azure and index in Qdrant."""
-    try:
-        title = article_data['title']
-        url = article_data['url']
-        content = article_data['content']
-        source = article_data['source']
-        published = article_data['published']
-        
-        logger.info(f"🔄 Processing article: {title}")
-        logger.info(f"   📄 Content length: {len(content)} characters")
-        logger.info(f"   🔗 URL: {url}")
-        logger.info(f"   📅 Published: {published}")
-        
-        # Check for duplicates
-        duplicate_detector = get_duplicate_detector()
-        is_duplicate, duplicate_type = duplicate_detector.is_duplicate(article_data)
-        
-        if is_duplicate:
-            logger.info(f"🔍 Detected duplicate article: {title} (type: {duplicate_type})")
-            # Record duplicate in metrics
-            metrics = get_metrics()
-            metrics.record_duplicate_detected(source, url, duplicate_type)
-            return False
-        
-        # Create article model
-        article = OutputModel(
-            title=title,
-            publishDate=published,
-            content=content,
-            url=url
-        )
-        
-        # Convert to PST
-        publish_date_pst = convert_to_pst(published)
-        if publish_date_pst:
-            article.publishDatePst = publish_date_pst
-        
-        # Prepare for Azure storage
-        article_dict = article.to_dict()
-        article_dict.update({
-            "_source": source,
-            "_author": article_data.get('author', ''),
-            "_category": article_data.get('category', ''),
-            "_crawled_at": get_timestamp(),
-            "_article_id": generate_id()
-        })
-        
-        # Upload to Azure
-        azure_ok = check_azure_connection()
-        if azure_ok:
-            safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()[:200]
-            success, msg = upload_json_to_azure(
-                article_dict,
-                blob_name=f"{source}-{safe_title}.json",
-                publish_date_pst=article.publishDatePst
-            )
-            if not success:
-                logger.error(f"Azure upload failed for {url}: {msg}")
-                # Update health check for Azure
-                health_check = get_health_check()
-                health_check.update_dependency_status("azure", False, msg)
-        
-        # Index in Qdrant
-        vector_client = None
+    """Process a single article - store in Azure and index in Qdrant with enhanced retry mechanism."""
+    # Retry configuration for cloud environments
+    max_retries = 3
+    retry_delay_base = 2  # seconds
+    
+    for attempt in range(max_retries):
+        retry_delay = retry_delay_base ** attempt if attempt > 0 else 0
+        if attempt > 0:
+            logger.info(f"Retry attempt {attempt}/{max_retries} for article processing after {retry_delay}s delay")
+            await asyncio.sleep(retry_delay)
+            
         try:
-            vector_client = VectorClient()
-            logger.info(f"🔍 Adding document to Qdrant: {title}")
+            title = article_data['title']
+            url = article_data['url']
+            content = article_data['content']
+            source = article_data['source']
+            published = article_data['published']
             
-            doc_metadata = {
-                "publishDatePst": article.publishDatePst.isoformat() if article.publishDatePst else None,
-                "source": source,
-                "author": article_data.get('author', ''),
-                "category": article_data.get('category', ''),
-                "article_id": article_dict.get("_article_id")
-            }
-            doc_metadata = {k: v for k, v in doc_metadata.items() if v is not None}
-            logger.info(f"   📊 Metadata: {doc_metadata}")
+            logger.info(f"🔄 Processing article: {title}")
+            logger.info(f"   📄 Content length: {len(content)} characters")
+            logger.info(f"   🔗 URL: {url}")
+            logger.info(f"   📅 Published: {published}")
             
-            # Try to ensure collection exists before adding
-            logger.info("Ensuring Qdrant collection exists before adding document")
-            if hasattr(vector_client.client, "_ensure_collection_exists"):
-                await vector_client.client._ensure_collection_exists()
-            
-            add_result = await vector_client.add_document(content, metadata=doc_metadata)
-            logger.info(f"   📤 Qdrant add_document result: {add_result}")
-            if add_result:
-                logger.info(f"✅ Successfully indexed: {title}")
+            # Check for duplicates with error handling
+            try:
+                duplicate_detector = get_duplicate_detector()
+                is_duplicate, duplicate_type = duplicate_detector.is_duplicate(article_data)
                 
-                # Record successful processing in metrics
-                metrics = get_metrics()
-                metrics.record_article_processed(source, url, True)
+                if is_duplicate:
+                    logger.info(f"🔍 Detected duplicate article: {title} (type: {duplicate_type})")
+                    # Record duplicate in metrics
+                    try:
+                        metrics = get_metrics()
+                        metrics.record_duplicate_detected(source, url, duplicate_type)
+                    except Exception as metrics_err:
+                        logger.warning(f"Error recording duplicate metrics: {metrics_err}")
+                    return False
+            except Exception as dup_err:
+                logger.warning(f"Error checking for duplicates: {dup_err}, continuing with processing")
+            
+            # Create article model
+            article = OutputModel(
+                title=title,
+                publishDate=published,
+                content=content,
+                url=url
+            )
+            
+            # Convert to PST with error handling
+            publish_date_pst = None
+            try:
+                publish_date_pst = convert_to_pst(published)
+                if publish_date_pst:
+                    article.publishDatePst = publish_date_pst
+            except Exception as date_err:
+                logger.warning(f"Error converting date to PST: {date_err}, using original date")
+            
+            # Prepare for Azure storage
+            article_dict = article.to_dict()
+            article_dict.update({
+                "_source": source,
+                "_author": article_data.get('author', ''),
+                "_category": article_data.get('category', ''),
+                "_crawled_at": get_timestamp(),
+                "_article_id": generate_id()
+            })
+            
+            # Upload to Azure with retry logic
+            azure_ok = False
+            try:
+                azure_ok = check_azure_connection()
+            except Exception as azure_conn_err:
+                logger.warning(f"Error checking Azure connection: {azure_conn_err}")
+            
+            if azure_ok:
+                safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()[:200]
+                for azure_attempt in range(2):  # Inner retry for Azure
+                    try:
+                        success, msg = upload_json_to_azure(
+                            article_dict,
+                            blob_name=f"{source}-{safe_title}.json",
+                            publish_date_pst=article.publishDatePst
+                        )
+                        if not success:
+                            logger.error(f"Azure upload failed (attempt {azure_attempt+1}): {msg}")
+                            if azure_attempt < 1:  # If not the last attempt
+                                await asyncio.sleep(1)  # Short delay before retry
+                                continue
+                            # Update health check for Azure
+                            try:
+                                health_check = get_health_check()
+                                health_check.update_dependency_status("azure", False, msg)
+                            except Exception as health_err:
+                                logger.warning(f"Error updating health check: {health_err}")
+                        else:
+                            logger.info(f"Azure upload successful for {url}")
+                            break  # Exit the retry loop on success
+                    except Exception as azure_err:
+                        logger.error(f"Azure upload exception (attempt {azure_attempt+1}): {azure_err}")
+                        if azure_attempt < 1:  # If not the last attempt
+                            await asyncio.sleep(1)  # Short delay before retry
+            
+            # Index in Qdrant with robust error handling
+            vector_client = None
+            try:
+                # Create client for each attempt to ensure fresh connection
+                vector_client = VectorClient()
+                logger.info(f"🔍 Adding document to Qdrant: {title}")
                 
-                return True
-            else:
-                logger.error(f"❌ Failed to index: {title}, result was None")
+                # Prepare metadata
+                doc_metadata = {
+                    "publishDatePst": article.publishDatePst.isoformat() if article.publishDatePst else None,
+                    "source": source,
+                    "author": article_data.get('author', ''),
+                    "category": article_data.get('category', ''),
+                    "article_id": article_dict.get("_article_id")
+                }
+                doc_metadata = {k: v for k, v in doc_metadata.items() if v is not None}
+                logger.info(f"   📊 Metadata: {doc_metadata}")
+                
+                # Try to ensure collection exists before adding
+                logger.info("Ensuring Qdrant collection exists before adding document")
+                try:
+                    if hasattr(vector_client.client, "_ensure_collection_exists"):
+                        await vector_client.client._ensure_collection_exists()
+                except Exception as ensure_err:
+                    logger.warning(f"Error ensuring collection exists: {ensure_err}")
+                
+                # Add document with built-in retry from the enhanced VectorClient
+                add_result = await vector_client.add_document(content, metadata=doc_metadata)
+                logger.info(f"   📤 Qdrant add_document result: {add_result}")
+                
+                if add_result:
+                    logger.info(f"✅ Successfully indexed: {title}")
+                    
+                    # Record successful processing in metrics
+                    try:
+                        metrics = get_metrics()
+                        metrics.record_article_processed(source, url, True)
+                    except Exception as metrics_err:
+                        logger.warning(f"Error recording success metrics: {metrics_err}")
+                    
+                    # Success - return true
+                    return True
+                else:
+                    logger.error(f"❌ Failed to index: {title}, result was None")
+                    
+                    # Record failure in metrics
+                    try:
+                        metrics = get_metrics()
+                        metrics.record_article_processed(source, url, False, "Qdrant indexing failed")
+                    except Exception as metrics_err:
+                        logger.warning(f"Error recording failure metrics: {metrics_err}")
+                    
+                    # If this is not the last attempt, continue to retry
+                    if attempt < max_retries - 1:
+                        continue
+                    
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Error indexing article {title} (attempt {attempt+1}): {e}")
                 
                 # Record failure in metrics
-                metrics = get_metrics()
-                metrics.record_article_processed(source, url, False, "Qdrant indexing failed")
+                try:
+                    metrics = get_metrics()
+                    metrics.record_article_processed(source, url, False, str(e))
+                except Exception as metrics_err:
+                    logger.warning(f"Error recording error metrics: {metrics_err}")
+                
+                # If this is not the last attempt, continue to retry
+                if attempt < max_retries - 1:
+                    continue
                 
                 return False
-                
+            finally:
+                if vector_client:
+                    try:
+                        await vector_client.close()
+                    except Exception as close_err:
+                        logger.warning(f"Error closing vector client: {close_err}")
+                    
         except Exception as e:
-            logger.error(f"Error indexing article {title}: {e}")
+            logger.error(f"Error processing article (attempt {attempt+1}): {e}")
             
-            # Record failure in metrics
-            metrics = get_metrics()
-            metrics.record_article_processed(source, url, False, str(e))
+            # Record error in metrics if we have enough info
+            if 'source' in article_data and 'url' in article_data:
+                try:
+                    metrics = get_metrics()
+                    metrics.record_article_processed(
+                        article_data['source'], 
+                        article_data['url'], 
+                        False, 
+                        str(e)
+                    )
+                except Exception as metrics_err:
+                    logger.warning(f"Error recording error metrics: {metrics_err}")
+            
+            # If this is not the last attempt, continue to retry
+            if attempt < max_retries - 1:
+                continue
             
             return False
-        finally:
-            if vector_client:
-                await vector_client.close()
-                
-    except Exception as e:
-        logger.error(f"Error processing article: {e}")
-        
-        # Record error in metrics if we have enough info
-        if 'source' in article_data and 'url' in article_data:
-            metrics = get_metrics()
-            metrics.record_article_processed(
-                article_data['source'], 
-                article_data['url'], 
-                False, 
-                str(e)
-            )
-        
-        return False
+    
+    # If we've exhausted all retries
+    logger.error(f"All retry attempts failed for processing article: {article_data.get('title', 'Unknown')}")
+    return False
 
 async def crawl_source(source_config: dict) -> tuple:
     """Crawl a single configured source."""
@@ -475,7 +639,10 @@ async def crawl_source(source_config: dict) -> tuple:
                 extraction_time = time.time() - start_time
                 
                 # Record metrics
-                metrics.record_article_processed(source_name, success, extraction_time)
+                try:
+                    metrics.record_article_processed(source_name, article.get('url', ''), success, None if success else f"Processing failed for {article.get('title', 'Unknown')}")
+                except Exception as metrics_error:
+                    logger.warning(f"Error recording metrics: {metrics_error}")
                 
                 if success:
                     processed_count += 1
@@ -483,25 +650,37 @@ async def crawl_source(source_config: dict) -> tuple:
                 else:
                     failure_count += 1
                     logger.error(f"❌ Failed to process article {i+1}")
-                    # Record error in metrics
-                    metrics.record_error("article_processing_failed", source_name)
+                    # Record error in metrics with error handling
+                    try:
+                        metrics.record_error("article_processing_failed", source_name)
+                    except Exception as record_error:
+                        logger.warning(f"Error recording error metric: {record_error}")
                     
         elif source_type == 'html':
             logger.warning(f"HTML crawling not implemented for {source_name}")
             failure_count += 1
-            # Record error in metrics
-            metrics.record_error("html_crawling_not_implemented", source_name)
+            # Record error in metrics with error handling
+            try:
+                metrics.record_error("html_crawling_not_implemented", source_name)
+            except Exception as record_error:
+                logger.warning(f"Error recording error metric: {record_error}")
         else:
             logger.warning(f"Unknown source type: {source_type}")
             failure_count += 1
-            # Record error in metrics
-            metrics.record_error("unknown_source_type", source_name)
+            # Record error in metrics with error handling
+            try:
+                metrics.record_error("unknown_source_type", source_name)
+            except Exception as record_error:
+                logger.warning(f"Error recording error metric: {record_error}")
             
     except Exception as e:
         logger.error(f"Error crawling source {source_name}: {e}")
         failure_count += 1
-        # Record error in metrics
-        metrics.record_error("source_crawl_error", source_name)
+        # Record error in metrics with error handling
+        try:
+            metrics.record_error("source_crawl_error", source_name, str(e))
+        except Exception as record_error:
+            logger.warning(f"Error recording error metric: {record_error}")
     
     logger.info(f"Finished crawling {source_name}: {processed_count} processed, {failure_count} failed")
     return source_name, processed_count, failure_count
@@ -1014,7 +1193,7 @@ if __name__ == "__main__":
     # Initialize monitoring system
     logger.info("🔍 Initializing monitoring system...")
     from monitoring import init_monitoring
-    metrics, health_check, duplicate_detector, app_insights = init_monitoring()
+    metrics, health_check, duplicate_detector, app_insights, alert_manager = init_monitoring()
     logger.info("✅ Monitoring system initialized successfully")
     
     # Check if we need to perform collection cleanup or recreation

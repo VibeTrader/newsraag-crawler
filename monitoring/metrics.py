@@ -180,33 +180,41 @@ class CrawlerMetrics:
                 "timestamp": datetime.now().isoformat()
             })
     
-    def record_cycle_error(self, error_type: str, error_message: str, severity: str = "error"):
-        """Record an error that occurred during the cycle.
+    def record_error(self, error_type: str, source: str = None, error_message: str = None, severity: str = "error"):
+        """Record an error that occurred during operation.
         
         Args:
             error_type: Type of error
-            error_message: Error message
+            source: Source name associated with the error (optional)
+            error_message: Error message (optional)
             severity: Error severity ("info", "warning", "error", "critical")
         """
-        if not self.current_cycle_metrics:
-            return
-            
-        self.current_cycle_metrics["errors"].append({
-            "type": error_type,
-            "severity": severity,
-            "message": error_message,
-            "timestamp": datetime.now().isoformat()
-        })
+        # Record to current cycle if one is active
+        if self.current_cycle_metrics:
+            self.record_cycle_error(error_type, error_message or f"Error in {source}", severity)
         
         # Log the error
         if severity == "critical":
-            logger.critical(f"METRICS: {error_type} - {error_message}")
+            logger.critical(f"ERROR: {error_type} - {error_message or source or ''}")
         elif severity == "error":
-            logger.error(f"METRICS: {error_type} - {error_message}")
+            logger.error(f"ERROR: {error_type} - {error_message or source or ''}")
         elif severity == "warning":
-            logger.warning(f"METRICS: {error_type} - {error_message}")
+            logger.warning(f"ERROR: {error_type} - {error_message or source or ''}")
         else:
-            logger.info(f"METRICS: {error_type} - {error_message}")
+            logger.info(f"ERROR: {error_type} - {error_message or source or ''}")
+            
+    def record_article_extraction(self, source: str, url: str, extraction_time: float, success: bool, error: Optional[str] = None):
+        """Record metrics about article extraction.
+        
+        Args:
+            source: Source name
+            url: Article URL
+            extraction_time: Time taken for extraction in seconds
+            success: Whether extraction succeeded
+            error: Optional error message if failed
+        """
+        if not self.current_cycle_metrics:
+            return
     
     def end_cycle(self, success: bool = True):
         """End the current crawl cycle and save metrics.
