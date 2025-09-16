@@ -858,6 +858,15 @@ async def main_loop():
     
     last_cleanup_time = datetime.now()
     
+    # Create heartbeat directory
+    heartbeat_dir = os.path.join(os.path.dirname(__file__), 'data', 'heartbeat')
+    os.makedirs(heartbeat_dir, exist_ok=True)
+    heartbeat_file = os.path.join(heartbeat_dir, 'crawler_heartbeat.txt')
+    
+    # Update heartbeat file at startup
+    with open(heartbeat_file, 'w') as f:
+        f.write(f"Crawler started at: {datetime.now().isoformat()}\n")
+    
     # Add memory tracking
     try:
         import gc
@@ -996,7 +1005,10 @@ async def main_loop():
             
             logger.info(f"Cycle finished in {cycle_duration:.2f} seconds")
             logger.info(f"Next crawl cycle scheduled for: {next_run_time}")
-            logger.info(f"Sleeping for {sleep_duration:.2f} seconds...")
+            logger.info(f"===============================================")
+            logger.info(f"SLEEPING for {sleep_duration:.2f} seconds...")
+            logger.info(f"Will wake up at {next_run_time}")
+            logger.info(f"===============================================")
             
             # End cycle metrics tracking
             metrics.end_cycle(success=True)
@@ -1023,8 +1035,26 @@ async def main_loop():
                     logger.info(f"System resources: CPU {cpu_percent}%, Memory {mem_percent}%")
                 except:
                     pass
-            
-            await asyncio.sleep(sleep_duration)
+                    
+            # Update heartbeat file before sleep
+            try:
+                with open(heartbeat_file, 'a') as f:
+                    f.write(f"Cycle completed at: {datetime.now().isoformat()}, next cycle at: {next_run_time.isoformat()}\n")
+            except Exception as heartbeat_err:
+                logger.warning(f"Failed to update heartbeat file: {str(heartbeat_err)}")
+                
+            # Sleep until next cycle - with additional wake-up logging
+            try:
+                logger.info(f"Starting sleep at: {datetime.now()}")
+                await asyncio.sleep(sleep_duration)
+                logger.info(f"Woke up from sleep at: {datetime.now()}")
+                logger.info(f"===============================================")
+                logger.info(f"STARTING NEXT CYCLE after sleeping")
+                logger.info(f"===============================================")
+            except Exception as sleep_err:
+                logger.error(f"Error during sleep: {str(sleep_err)}")
+                # Continue to next cycle anyway
+                await asyncio.sleep(5)  # Short delay before retry
             
     except KeyboardInterrupt:
         logger.info("Received interrupt signal. Shutting down...")
