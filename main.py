@@ -45,7 +45,7 @@ from utils.clean_markdown import clean_markdown
 # Define path to config
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
-CRAWL_INTERVAL_SECONDS = 600  # Check sources every hour
+CRAWL_INTERVAL_SECONDS = 3600  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every hour
 
 def log_memory_usage():
