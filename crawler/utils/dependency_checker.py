@@ -1,6 +1,8 @@
 """
-Dependency checking utilities for NewsRagnarok Crawler.
+Dependency checker for NewsRagnarok Crawler.
 """
+import os
+import time
 import asyncio
 from loguru import logger
 
@@ -31,10 +33,10 @@ async def check_dependencies() -> bool:
     # Check Qdrant
     vector_client = None
     try:
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.time()
         vector_client = VectorClient()
         vector_ok = await vector_client.check_health()
-        duration_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+        duration_ms = (time.time() - start_time) * 1000
         
         logger.info(f"- Qdrant vector service connection: {'OK' if vector_ok else 'FAILED'}")
         health_check.update_dependency_status("qdrant", vector_ok)
@@ -56,9 +58,9 @@ async def check_dependencies() -> bool:
             await vector_client.close()
     
     # Check Azure
-    start_time = asyncio.get_event_loop().time()
+    start_time = time.time()
     azure_ok = check_azure_connection()
-    duration_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+    duration_ms = (time.time() - start_time) * 1000
     
     logger.info(f"- Azure Blob Storage connection: {'OK' if azure_ok else 'FAILED'}")
     health_check.update_dependency_status("azure", azure_ok)
@@ -68,7 +70,6 @@ async def check_dependencies() -> bool:
         app_insights.track_dependency_status("azure_blob", azure_ok, duration_ms)
     
     # Check OpenAI API by simply checking if keys are set
-    import os
     openai_api_key = os.getenv("OPENAI_API_KEY")
     openai_ok = openai_api_key is not None
     logger.info(f"- OpenAI API credentials: {'OK' if openai_ok else 'MISSING'}")

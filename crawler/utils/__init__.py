@@ -1,5 +1,5 @@
 """
-Package initialization for crawler utils.
+Utility modules for NewsRagnarok Crawler.
 """
 # Import utility functions
 from .config_loader import load_sources_config

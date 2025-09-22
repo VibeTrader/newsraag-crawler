@@ -6,15 +6,8 @@ import yaml
 from loguru import logger
 
 def load_sources_config(config_path: str) -> list:
-    """
-    Load the sources configuration from the YAML file.
-    
-    Args:
-        config_path: Path to the configuration file
-        
-    Returns:
-        List of source configurations
-    """
+
+    """Loads the sources configuration from the YAML file."""
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)

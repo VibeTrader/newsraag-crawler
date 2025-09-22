@@ -1,14 +1,16 @@
 """
-Cleanup utilities for NewsRagnarok Crawler.
+Data cleanup utilities for NewsRagnarok Crawler.
 """
 import asyncio
+import os
+import gc
+import time
+from datetime import datetime
 from loguru import logger
 from contextlib import nullcontext
 from typing import Optional, Dict, Any
-import time
 
-# Import vector client
-from clients.vector_client import VectorClient
+from clients.vector_client import VectorClient, create_vector_client
 from monitoring.metrics import get_metrics
 from monitoring.app_insights import get_app_insights
 from monitoring.health_check import get_health_check
