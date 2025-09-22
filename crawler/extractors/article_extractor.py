@@ -55,6 +55,51 @@ async def extract_full_content(url: str, rss_entry) -> str:
                 '.content',
                 '#content .post'
             ]
+            
+            # Additional error handling for babypips
+            try:
+                # Attempt to find specific elements for babypips
+                logger.info(f"Using specialized extraction logic for babypips URL: {url}")
+                
+                # More aggressive error handling for babypips
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.get(url, headers=headers, timeout=60) as response:  # Longer timeout
+                            if response.status != 200:
+                                logger.warning(f"Failed to fetch babypips URL: HTTP {response.status}")
+                            else:
+                                babypips_html = await response.text()
+                                
+                                if babypips_html and len(babypips_html) > 1000:  # Ensure we got substantial content
+                                    # Parse with BeautifulSoup
+                                    soup = BeautifulSoup(babypips_html, 'html.parser')
+                                    
+                                    # Try to find content with babypips-specific selectors
+                                    for selector in content_selectors:
+                                        try:
+                                            elements = soup.select(selector)
+                                            if elements:
+                                                # Get text from the largest element
+                                                largest_element = max(elements, key=lambda x: len(x.get_text()))
+                                                candidate_text = largest_element.get_text(separator=' ', strip=True)
+                                                if len(candidate_text) > 500:
+                                                    logger.info(f"Found babypips content using selector '{selector}': {len(candidate_text)} chars")
+                                                    
+                                                    # Clean the content
+                                                    try:
+                                                        babypips_content = clean_markdown(candidate_text)
+                                                        if babypips_content and len(babypips_content) > 200:
+                                                            logger.info(f"Successfully extracted babypips content: {len(babypips_content)} chars")
+                                                            return babypips_content
+                                                    except Exception as clean_err:
+                                                        logger.warning(f"Error cleaning babypips content: {clean_err}")
+                                        except Exception as selector_err:
+                                            logger.warning(f"Error with babypips selector '{selector}': {selector_err}")
+                    except Exception as fetch_err:
+                        logger.warning(f"Error fetching babypips URL {url}: {fetch_err}")
+            except Exception as babypips_err:
+                logger.error(f"Error in specialized babypips extraction: {babypips_err}")
+                # Continue with standard extraction methods
         
         # Method 1: Try Playwright first (if available) with enhanced error handling
         try:

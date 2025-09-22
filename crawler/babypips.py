@@ -144,22 +144,24 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                 cache_mode=CacheMode.BYPASS,
                 excluded_tags=['nav', 'footer', 'aside', 'header', 'script', 'style', 'iframe', 'form', 'button', 'input', 'menu', 'menuitem'],
                 remove_overlay_elements=True,
-                # Target the actual article content, exclude navigation
-                css_selector=".full-post .post-content, .entry-content, .article-body, .post-body, .content-body, .full-post .entry, .full-post article",  
+                # Target the actual article content, exclude navigation - using more specific selectors for BabyPips
+                css_selector=".full-post .post-content, .entry-content, .article-body, .post-body, .content-body, .full-post .entry, .full-post article, .post-content, .content, #content .post", 
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
-                        threshold=0.85,
+                        threshold=0.7,  # Lower threshold to be more inclusive
                         threshold_type="fixed",
-                        min_word_threshold=50,  # Reverted to original
+                        min_word_threshold=30,  # Lower minimum word threshold
                         user_query="Main article content only, exclude navigation and site branding"
                     ),
                     options={
                         "ignore_links": True,
                         "ignore_images": True,
-                        "ignore_tables": True,
+                        "ignore_tables": False,  # Allow tables
                         "ignore_horizontal_rules": True
                     }
                 ),
+                # Use a longer timeout for BabyPips
+                timeout_ms=60000,  # 60 second timeout
             )
             
             # Run crawler using the passed instance

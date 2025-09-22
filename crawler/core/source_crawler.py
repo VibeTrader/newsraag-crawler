@@ -29,11 +29,112 @@ async def crawl_source(source_config: dict) -> tuple:
     
     try:
         if source_type == 'rss':
-            # Crawl RSS feed
-            articles = await crawl_rss_feed(source_name, source_url)
-            
-            # Process each article
-            logger.info(f"Processing {len(articles)} articles from {source_name}")
+            # Special case for babypips
+            if source_name == 'babypips':
+                logger.info(f"Using specialized BabyPips crawler for {source_name}")
+                try:
+                    from crawl4ai import AsyncWebCrawler, BrowserConfig
+                    from crawler.babypips import BabyPipsCrawler
+                    
+                    # Create browser config
+                    browser_config = BrowserConfig(
+                        headless=True,
+                        extra_args=[
+                            "--disable-gpu", 
+                            "--disable-dev-shm-usage", 
+                            "--no-sandbox",
+                            "--disable-extensions",
+                            "--memory-pressure-off",
+                            "--max_old_space_size=512"
+                        ]
+                    )
+                    
+                    # Create babypips crawler
+                    babypips_crawler = BabyPipsCrawler(source_url)
+                    
+                    # Get URLs using the specialized crawler
+                    urls = await babypips_crawler.get_urls()
+                    logger.info(f"Found {len(urls)} articles from BabyPips")
+                    
+                    # Create crawler instance for processing
+                    async with AsyncWebCrawler(config=browser_config) as crawler_instance:
+                        # Process each URL
+                        for i, url_data in enumerate(urls):
+                            url = url_data[0] if isinstance(url_data, tuple) and len(url_data) > 0 else "Unknown URL"
+                            logger.info(f"Processing BabyPips article {i+1}/{len(urls)}: {url}")
+                            
+                            # Record start time
+                            start_time = time.time()
+                            
+                            # Process using the specialized method
+                            success = await babypips_crawler.process_url(url_data, crawler_instance)
+                            
+                            # Calculate time
+                            extraction_time = time.time() - start_time
+                            
+                            # Record metrics
+                            try:
+                                title = url_data[1] if isinstance(url_data, tuple) and len(url_data) > 1 else "Unknown"
+                                metrics.record_article_processed(source_name, url, success, None if success else f"Processing failed for {title}")
+                            except Exception as metrics_error:
+                                logger.warning(f"Error recording metrics: {metrics_error}")
+                            
+                            if success:
+                                processed_count += 1
+                                logger.info(f"✅ Successfully processed BabyPips article {i+1}")
+                            else:
+                                failure_count += 1
+                                logger.error(f"❌ Failed to process BabyPips article {i+1}")
+                                # Record error in metrics
+                                try:
+                                    metrics.record_error("article_processing_failed", source_name)
+                                except Exception as record_error:
+                                    logger.warning(f"Error recording error metric: {record_error}")
+                except Exception as babypips_err:
+                    logger.error(f"Error using specialized BabyPips crawler: {babypips_err}")
+                    logger.info(f"Falling back to standard RSS crawler for {source_name}")
+                    
+                    # Fall back to standard RSS crawling
+                    articles = await crawl_rss_feed(source_name, source_url)
+                    
+                    # Process articles with standard method
+                    logger.info(f"Processing {len(articles)} articles from {source_name} (fallback method)")
+                    for i, article in enumerate(articles):
+                        logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
+                        
+                        # Record start time for extraction performance tracking
+                        start_time = time.time()
+                        
+                        # Process the article
+                        success = await process_article(article)
+                        
+                        # Calculate extraction time
+                        extraction_time = time.time() - start_time
+                        
+                        # Record metrics
+                        try:
+                            metrics.record_article_processed(source_name, article.get('url', ''), success, None if success else f"Processing failed for {article.get('title', 'Unknown')}")
+                        except Exception as metrics_error:
+                            logger.warning(f"Error recording metrics: {metrics_error}")
+                        
+                        if success:
+                            processed_count += 1
+                            logger.info(f"✅ Successfully processed article {i+1}")
+                        else:
+                            failure_count += 1
+                            logger.error(f"❌ Failed to process article {i+1}")
+                            # Record error in metrics
+                            try:
+                                metrics.record_error("article_processing_failed", source_name)
+                            except Exception as record_error:
+                                logger.warning(f"Error recording error metric: {record_error}")
+            else:
+                # Standard RSS crawling for other sources
+                # Crawl RSS feed
+                articles = await crawl_rss_feed(source_name, source_url)
+                
+                # Process each article
+                logger.info(f"Processing {len(articles)} articles from {source_name}")
             for i, article in enumerate(articles):
                 logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
                 
@@ -60,7 +161,34 @@ async def crawl_source(source_config: dict) -> tuple:
                     logger.error(f"❌ Failed to process article {i+1}")
                     # Record error in metrics with error handling
                     try:
-                        metrics.record_error("article_processing_failed", source_name)
+                        # Add more detailed error info for babypips
+                        if source_name == 'babypips':
+                            logger.error(f"BabyPips processing failure details: URL={article.get('url', 'Unknown')}, Title={article.get('title', 'Unknown')}")
+                            # Try to get more detailed diagnostic info
+                            content_length = len(article.get('content', '')) if article.get('content') else 0
+                            logger.error(f"BabyPips content diagnostic: Content length={content_length} chars")
+                            
+                            # Record a specific babypips error
+                            metrics.record_error("babypips_article_processing_failed", "babypips", 
+                                                f"Failed to process BabyPips article: {article.get('title', 'Unknown')}, content length: {content_length}")
+                            
+                            # Optionally send an alert for continued babypips failures
+                            try:
+                                from monitoring.alerts import get_alert_manager
+                                alert_manager = get_alert_manager()
+                                alert_manager.send_alert(
+                                    "babypips_failure",
+                                    f"BabyPips article processing failed: {article.get('title', 'Unknown')}",
+                                    {
+                                        "url": article.get('url', 'Unknown'),
+                                        "content_length": content_length,
+                                        "cycle_id": metrics.current_cycle_id
+                                    }
+                                )
+                            except Exception as alert_error:
+                                logger.warning(f"Failed to send BabyPips alert: {alert_error}")
+                        else:
+                            metrics.record_error("article_processing_failed", source_name)
                     except Exception as record_error:
                         logger.warning(f"Error recording error metric: {record_error}")
                     
