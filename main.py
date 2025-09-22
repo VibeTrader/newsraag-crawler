@@ -17,6 +17,7 @@ import gc
 import psutil
 import os
 from contextlib import nullcontext
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 # Import monitoring components
 from monitoring import init_monitoring
@@ -173,6 +174,36 @@ async def extract_full_content(url: str, rss_entry) -> str:
         # Get domain for debugging
         domain = parsed_url.netloc
         logger.info(f"Extracting content from domain: {domain}")
+        
+        # Domain-specific handling for babypips
+        content_selectors = [
+            'article',
+            '[class*="article"]',
+            '[class*="content"]',
+            '[class*="post"]',
+            '[class*="entry"]',
+            '.post-content',
+            '.entry-content',
+            '.article-content',
+            '.content-body',
+            '.story-body',
+            'main',
+            '.main-content'
+        ]
+        
+        # Use specific selectors for babypips
+        if "babypips.com" in domain:
+            logger.info(f"Using babypips-specific extraction for: {url}")
+            content_selectors = [
+                '.post-content',
+                '.entry-content',
+                '.article-body',
+                '.full-post',
+                'article',
+                '.news-content',
+                '.content',
+                '#content .post'
+            ]
         
         # Method 1: Try Playwright first (if available) with enhanced error handling
         try:
@@ -684,13 +715,82 @@ async def crawl_source(source_config: dict) -> tuple:
                         logger.warning(f"Error recording error metric: {record_error}")
                     
         elif source_type == 'html':
-            logger.warning(f"HTML crawling not implemented for {source_name}")
-            failure_count += 1
-            # Record error in metrics with error handling
-            try:
-                metrics.record_error("html_crawling_not_implemented", source_name)
-            except Exception as record_error:
-                logger.warning(f"Error recording error metric: {record_error}")
+            logger.info(f"Processing HTML source: {source_name}")
+            
+            # For kabutan specifically
+            if source_name == 'kabutan':
+                try:
+                    # Import necessary modules
+                    from crawl4ai import AsyncWebCrawler, BrowserConfig
+                    from crawler.kabutan import KabutanCrawler
+                    
+                    # Create browser config for HTML crawling
+                    browser_config = BrowserConfig(
+                        headless=True,
+                        extra_args=[
+                            "--disable-gpu", 
+                            "--disable-dev-shm-usage", 
+                            "--no-sandbox",
+                            "--disable-extensions",
+                            "--memory-pressure-off",
+                            "--max_old_space_size=512"
+                        ]
+                    )
+                    
+                    # Create and use the crawler
+                    async with AsyncWebCrawler(config=browser_config) as crawler_instance:
+                        kabutan_crawler = KabutanCrawler()
+                        
+                        # Get URLs to process
+                        articles = await kabutan_crawler.get_urls()
+                        logger.info(f"Found {len(articles)} articles from {source_name}")
+                        
+                        # Process each article
+                        for i, article_data in enumerate(articles):
+                            url = article_data.get('url', 'Unknown URL')
+                            logger.info(f"Processing article {i+1}/{len(articles)}: {url}")
+                            
+                            # Record start time for extraction performance tracking
+                            start_time = time.time()
+                            
+                            # Process the article
+                            success = await kabutan_crawler.process_url(article_data, crawler_instance)
+                            
+                            # Calculate extraction time
+                            extraction_time = time.time() - start_time
+                            
+                            # Record metrics
+                            try:
+                                metrics.record_article_processed(source_name, url, success, None if success else f"Processing failed for {article_data.get('title', 'Unknown')}")
+                            except Exception as metrics_error:
+                                logger.warning(f"Error recording metrics: {metrics_error}")
+                            
+                            if success:
+                                processed_count += 1
+                                logger.info(f"✅ Successfully processed article {i+1}")
+                            else:
+                                failure_count += 1
+                                logger.error(f"❌ Failed to process article {i+1}")
+                        
+                        # Close the crawler
+                        await kabutan_crawler.close()
+                        
+                except Exception as e:
+                    logger.error(f"Error processing HTML source {source_name}: {e}")
+                    failure_count += 1
+                    # Record error in metrics
+                    try:
+                        metrics.record_error("html_crawling_error", source_name, str(e))
+                    except Exception as record_error:
+                        logger.warning(f"Error recording error metric: {record_error}")
+            else:
+                logger.warning(f"HTML crawling not implemented for {source_name}")
+                failure_count += 1
+                # Record error in metrics
+                try:
+                    metrics.record_error("html_crawling_not_implemented", source_name)
+                except Exception as record_error:
+                    logger.warning(f"Error recording error metric: {record_error}")
         else:
             logger.warning(f"Unknown source type: {source_type}")
             failure_count += 1
