@@ -135,63 +135,62 @@ async def crawl_source(source_config: dict) -> tuple:
                 
                 # Process each article
                 logger.info(f"Processing {len(articles)} articles from {source_name}")
-            for i, article in enumerate(articles):
-                logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
-                
-                # Record start time for extraction performance tracking
-                start_time = time.time()
-                
-                # Process the article
-                success = await process_article(article)
-                
-                # Calculate extraction time
-                extraction_time = time.time() - start_time
-                
-                # Record metrics
-                try:
-                    metrics.record_article_processed(source_name, article.get('url', ''), success, None if success else f"Processing failed for {article.get('title', 'Unknown')}")
-                except Exception as metrics_error:
-                    logger.warning(f"Error recording metrics: {metrics_error}")
-                
-                if success:
-                    processed_count += 1
-                    logger.info(f"✅ Successfully processed article {i+1}")
-                else:
-                    failure_count += 1
-                    logger.error(f"❌ Failed to process article {i+1}")
-                    # Record error in metrics with error handling
-                    try:
-                        # Add more detailed error info for babypips
-                        if source_name == 'babypips':
-                            logger.error(f"BabyPips processing failure details: URL={article.get('url', 'Unknown')}, Title={article.get('title', 'Unknown')}")
-                            # Try to get more detailed diagnostic info
-                            content_length = len(article.get('content', '')) if article.get('content') else 0
-                            logger.error(f"BabyPips content diagnostic: Content length={content_length} chars")
-                            
-                            # Record a specific babypips error
-                            metrics.record_error("babypips_article_processing_failed", "babypips", 
-                                                f"Failed to process BabyPips article: {article.get('title', 'Unknown')}, content length: {content_length}")
-                            
-                            # Optionally send an alert for continued babypips failures
-                            try:
-                                from monitoring.alerts import get_alert_manager
-                                alert_manager = get_alert_manager()
-                                alert_manager.send_alert(
-                                    "babypips_failure",
-                                    f"BabyPips article processing failed: {article.get('title', 'Unknown')}",
-                                    {
-                                        "url": article.get('url', 'Unknown'),
-                                        "content_length": content_length,
-                                        "cycle_id": metrics.current_cycle_id
-                                    }
-                                )
-                            except Exception as alert_error:
-                                logger.warning(f"Failed to send BabyPips alert: {alert_error}")
-                        else:
-                            metrics.record_error("article_processing_failed", source_name)
-                    except Exception as record_error:
-                        logger.warning(f"Error recording error metric: {record_error}")
+                for i, article in enumerate(articles):
+                    logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
                     
+                    # Record start time for extraction performance tracking
+                    start_time = time.time()
+                    
+                    # Process the article
+                    success = await process_article(article)
+                    
+                    # Calculate extraction time
+                    extraction_time = time.time() - start_time
+                    
+                    # Record metrics
+                    try:
+                        metrics.record_article_processed(source_name, article.get('url', ''), success, None if success else f"Processing failed for {article.get('title', 'Unknown')}")
+                    except Exception as metrics_error:
+                        logger.warning(f"Error recording metrics: {metrics_error}")
+                    
+                    if success:
+                        processed_count += 1
+                        logger.info(f"✅ Successfully processed article {i+1}")
+                    else:
+                        failure_count += 1
+                        logger.error(f"❌ Failed to process article {i+1}")
+                        # Record error in metrics with error handling
+                        try:
+                            # Add more detailed error info for babypips
+                            if source_name == 'babypips':
+                                logger.error(f"BabyPips processing failure details: URL={article.get('url', 'Unknown')}, Title={article.get('title', 'Unknown')}")
+                                # Try to get more detailed diagnostic info
+                                content_length = len(article.get('content', '')) if article.get('content') else 0
+                                logger.error(f"BabyPips content diagnostic: Content length={content_length} chars")
+                                
+                                # Record a specific babypips error
+                                metrics.record_error("babypips_article_processing_failed", "babypips", 
+                                                    f"Failed to process BabyPips article: {article.get('title', 'Unknown')}, content length: {content_length}")
+                                
+                                # Optionally send an alert for continued babypips failures
+                                try:
+                                    from monitoring.alerts import get_alert_manager
+                                    alert_manager = get_alert_manager()
+                                    alert_manager.send_alert(
+                                        "babypips_failure",
+                                        f"BabyPips article processing failed: {article.get('title', 'Unknown')}",
+                                        {
+                                            "url": article.get('url', 'Unknown'),
+                                            "content_length": content_length,
+                                            "cycle_id": metrics.current_cycle_id
+                                        }
+                                    )
+                                except Exception as alert_error:
+                                    logger.warning(f"Failed to send BabyPips alert: {alert_error}")
+                            else:
+                                metrics.record_error("article_processing_failed", source_name)
+                        except Exception as record_error:
+                            logger.warning(f"Error recording error metric: {record_error}")
         elif source_type == 'html':
             logger.info(f"Processing HTML source: {source_name}")
             
