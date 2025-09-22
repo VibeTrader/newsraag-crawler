@@ -26,6 +26,36 @@ async def extract_full_content(url: str, rss_entry) -> str:
         domain = parsed_url.netloc
         logger.info(f"Extracting content from domain: {domain}")
         
+        # Domain-specific content selectors
+        content_selectors = [
+            'article',
+            '[class*="article"]',
+            '[class*="content"]',
+            '[class*="post"]',
+            '[class*="entry"]',
+            '.post-content',
+            '.entry-content',
+            '.article-content',
+            '.content-body',
+            '.story-body',
+            'main',
+            '.main-content'
+        ]
+        
+        # BabyPips specific selectors - This fixes the "article_processing_failed" error
+        if "babypips.com" in domain:
+            logger.info(f"Using babypips-specific extraction for: {url}")
+            content_selectors = [
+                '.post-content',
+                '.entry-content',
+                '.article-body',
+                '.full-post',
+                'article',
+                '.news-content',
+                '.content',
+                '#content .post'
+            ]
+        
         # Method 1: Try Playwright first (if available) with enhanced error handling
         try:
             try:
