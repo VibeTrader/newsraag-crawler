@@ -38,6 +38,8 @@ ALERT_COOLDOWNS = {
     "cycle_failure": 3600,  # 1 hour
     "dependency": 1800,  # 30 minutes
     "consecutive_failure": 1800,  # 30 minutes
+    "cleanup_failure": 3600,  # 1 hou
+    "cleanup_exception": 1800,   # 15 minutes (more critical, shorter cooldown)
 }
 
 class AlertManager:

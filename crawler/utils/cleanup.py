@@ -5,6 +5,7 @@ import asyncio
 import os
 import gc
 import time
+import traceback
 from datetime import datetime
 from loguru import logger
 from contextlib import nullcontext
@@ -82,6 +83,22 @@ async def cleanup_old_data(hours: int = 24) -> bool:
                     if app_insights.enabled:
                         app_insights.track_event("cleanup_failed")
                     
+                    # Send explicit alert for cleanup failure
+                    try:
+                        from monitoring.alerts import get_alert_manager
+                        alert_manager = get_alert_manager()
+                        alert_manager.send_alert(
+                            "cleanup_failure", 
+                            "Cleanup operation failed to return a result",
+                            {
+                                "operation": "cleanup_old_data",
+                                "hours": hours
+                            }
+                        )
+                        logger.info("Sent cleanup failure alert")
+                    except Exception as alert_err:
+                        logger.warning(f"Failed to send cleanup alert: {alert_err}")
+                    
                     return False
                     
             except Exception as e:
@@ -96,6 +113,24 @@ async def cleanup_old_data(hours: int = 24) -> bool:
                 # Update health check
                 health_check = get_health_check()
                 health_check.update_dependency_status("qdrant", False, str(e))
+                
+                # Send explicit alert for cleanup exception
+                try:
+                    from monitoring.alerts import get_alert_manager
+                    alert_manager = get_alert_manager()
+                    alert_manager.send_alert(
+                        "cleanup_exception", 
+                        f"Critical error during cleanup: {str(e)}",
+                        {
+                            "operation": "cleanup_old_data",
+                            "hours": hours,
+                            "error": str(e),
+                            "stack_trace": "".join(traceback.format_exception(type(e), e, e.__traceback__))
+                        }
+                    )
+                    logger.info("Sent cleanup exception alert")
+                except Exception as alert_err:
+                    logger.warning(f"Failed to send cleanup exception alert: {alert_err}")
                 
                 return False
             finally:
