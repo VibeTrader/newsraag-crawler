@@ -128,6 +128,124 @@ async def crawl_source(source_config: dict) -> tuple:
                                 metrics.record_error("article_processing_failed", source_name)
                             except Exception as record_error:
                                 logger.warning(f"Error recording error metric: {record_error}")
+            
+            # Special case for fxstreet
+            elif source_name == 'fxstreet':
+                logger.info(f"Using specialized FXStreet crawler for {source_name}")
+                try:
+                    from crawl4ai import AsyncWebCrawler, BrowserConfig
+                    from crawler.fxstreet import FXStreetCrawler
+                    
+                    # Create browser config
+                    browser_config = BrowserConfig(
+                        headless=True,
+                        extra_args=[
+                            "--disable-gpu", 
+                            "--disable-dev-shm-usage", 
+                            "--no-sandbox",
+                            "--disable-extensions",
+                            "--memory-pressure-off",
+                            "--max_old_space_size=512"
+                        ]
+                    )
+                    
+                    # Create fxstreet crawler
+                    fxstreet_crawler = FXStreetCrawler(source_url)
+                    
+                    # Get URLs using the specialized crawler
+                    urls = await fxstreet_crawler.get_urls()
+                    logger.info(f"Found {len(urls)} articles from FXStreet")
+                    
+                    # Create crawler instance for processing
+                    async with AsyncWebCrawler(config=browser_config) as crawler_instance:
+                        # Process each URL
+                        for i, url_data in enumerate(urls):
+                            url = url_data[0] if isinstance(url_data, tuple) and len(url_data) > 0 else "Unknown URL"
+                            logger.info(f"Processing FXStreet article {i+1}/{len(urls)}: {url}")
+                            
+                            # Record start time
+                            start_time = time.time()
+                            
+                            # Process using the specialized method
+                            success = await fxstreet_crawler.process_url(url_data, crawler_instance)
+                            
+                            # Calculate time
+                            extraction_time = time.time() - start_time
+                            
+                            # Record metrics
+                            try:
+                                title = url_data[1] if isinstance(url_data, tuple) and len(url_data) > 1 else "Unknown"
+                                metrics.record_article_processed(source_name, url, success, None if success else f"Processing failed for {title}")
+                            except Exception as metrics_error:
+                                logger.warning(f"Error recording metrics: {metrics_error}")
+                            
+                            if success:
+                                processed_count += 1
+                                logger.info(f"✅ Successfully processed FXStreet article {i+1}")
+                            else:
+                                failure_count += 1
+                                logger.error(f"❌ Failed to process FXStreet article {i+1}")
+                                # Record error in metrics
+                                try:
+                                    metrics.record_error("article_processing_failed", source_name)
+                                    
+                                    # Send an alert for FXStreet failures
+                                    logger.error(f"FXStreet processing failure details: URL={url}, Title={title}")
+                                    
+                                    try:
+                                        from monitoring.alerts import get_alert_manager
+                                        alert_manager = get_alert_manager()
+                                        alert_manager.send_alert(
+                                            "fxstreet_failure",
+                                            f"FXStreet article processing failed: {title}",
+                                            {
+                                                "url": url,
+                                                "cycle_id": metrics.current_cycle_id
+                                            }
+                                        )
+                                    except Exception as alert_error:
+                                        logger.warning(f"Failed to send FXStreet alert: {alert_error}")
+                                except Exception as record_error:
+                                    logger.warning(f"Error recording error metric: {record_error}")
+                except Exception as fxstreet_err:
+                    logger.error(f"Error using specialized FXStreet crawler: {fxstreet_err}")
+                    logger.info(f"Falling back to standard RSS crawler for {source_name}")
+                    
+                    # Fall back to standard RSS crawling
+                    articles = await crawl_rss_feed(source_name, source_url)
+                    
+                    # Process articles with standard method
+                    logger.info(f"Processing {len(articles)} articles from {source_name} (fallback method)")
+                    for i, article in enumerate(articles):
+                        logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
+                        
+                        # Record start time for extraction performance tracking
+                        start_time = time.time()
+                        
+                        # Process the article
+                        success = await process_article(article)
+                        
+                        # Calculate extraction time
+                        extraction_time = time.time() - start_time
+                        
+                        # Record metrics
+                        try:
+                            metrics.record_article_processed(source_name, article.get('url', ''), success, None if success else f"Processing failed for {article.get('title', 'Unknown')}")
+                        except Exception as metrics_error:
+                            logger.warning(f"Error recording metrics: {metrics_error}")
+                        
+                        if success:
+                            processed_count += 1
+                            logger.info(f"✅ Successfully processed article {i+1}")
+                        else:
+                            failure_count += 1
+                            logger.error(f"❌ Failed to process article {i+1}")
+                            # Record error in metrics
+                            try:
+                                metrics.record_error("article_processing_failed", source_name)
+                            except Exception as record_error:
+                                logger.warning(f"Error recording error metric: {record_error}")
+                                
             else:
                 # Standard RSS crawling for other sources
                 # Crawl RSS feed

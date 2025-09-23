@@ -39,6 +39,8 @@ ALERT_COOLDOWNS = {
     "dependency": 1800,  # 30 minutes
     "consecutive_failure": 1800,  # 30 minutes
     "babypips_failure": 1800,  # 30 minutes
+    "fxstreet_failure": 1800,  # 30 minutes
+    "forexlive_failure": 1800,  # 30 minutes
     "cleanup_failure": 3600,  # 1 hour
     "cleanup_exception": 1800   # 15 minutes (more critical, shorter cooldown)
 }

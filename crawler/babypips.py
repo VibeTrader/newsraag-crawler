@@ -148,9 +148,9 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                 css_selector=".full-post .post-content, .entry-content, .article-body, .post-body, .content-body, .full-post .entry, .full-post article, .post-content, .content, #content .post", 
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
-                        threshold=0.7,  # Lower threshold to be more inclusive
+                        threshold=0.85,  # Lower threshold to be more inclusive
                         threshold_type="fixed",
-                        min_word_threshold=30,  # Lower minimum word threshold
+                        min_word_threshold=50,  # Lower minimum word threshold
                         user_query="Main article content only, exclude navigation and site branding"
                     ),
                     options={

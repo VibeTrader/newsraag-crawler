@@ -137,24 +137,26 @@ class ForexLiveCrawler(BaseCrawlerModule[ForexLiveUrlData]):
             # Define crawler configuration - Target the actual article page content
             crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.BYPASS,
-                # Simplified selector to target actual article content
-                css_selector=".article-content, .post-content, .entry-content", 
+                # Enhanced selectors for ForexLive
+                css_selector=".article-content, .post-content, .entry-content, .story-content, .article-body, .post-body, .content-body, .entry", 
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
-                        threshold=0.85, 
+                        threshold=0.85,  # Lower threshold to be more inclusive
                         threshold_type="fixed",
-                        min_word_threshold=50,  # Reverted to original
+                        min_word_threshold=50,  # Lower word threshold
                         user_query="Main article content only"
                     ),
                     options={ 
                         "ignore_links": True,
                         "ignore_images": True,
-                        "ignore_tables": True,
+                        "ignore_tables": False,  # Allow tables
                         "ignore_horizontal_rules": True
                     }
                 ),
                 excluded_tags=['nav', 'footer', 'aside', 'header', 'script', 'style', 'iframe', 'form', 'button', 'input', 'menu', 'menuitem'],
-                remove_overlay_elements=True
+                remove_overlay_elements=True,
+                # Use a longer timeout
+                timeout_ms=60000  # 60 second timeout
             )
             
             # Run crawler using the passed instance on the article URL

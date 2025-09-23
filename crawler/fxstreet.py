@@ -128,24 +128,26 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
             # Define crawler configuration
             crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.BYPASS,
-                # Simplified selector to target actual article content
-                css_selector="#fxs_article_content", 
+                # Improved selectors for FXStreet
+                css_selector="#fxs_article_content, .fxs_article_body, .article-content, .content-body, .post-content, article", 
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
-                        threshold=0.85, # Adjust threshold if needed
+                        threshold=0.85,  # Lower threshold to be more inclusive
                         threshold_type="fixed",
-                        min_word_threshold=50,  # Reverted to original
+                        min_word_threshold=50,  # Lower word threshold
                         user_query="Main article content only"
                     ),
-                    options={ # Keep options simple as per babypips
+                    options={
                         "ignore_links": True,
                         "ignore_images": True,
-                        "ignore_tables": True,
+                        "ignore_tables": False,  # Allow tables
                         "ignore_horizontal_rules": True
                     }
                 ),
                 excluded_tags=['nav', 'footer', 'aside', 'header', 'script', 'style', 'iframe', 'form', 'button', 'input', 'menu', 'menuitem'],
-                remove_overlay_elements=True
+                remove_overlay_elements=True,
+                # Use a longer timeout
+                timeout_ms=60000,  # 60 second timeout
             )
             
             # Run crawler using the passed instance
