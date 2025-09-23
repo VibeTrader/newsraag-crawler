@@ -138,7 +138,7 @@ async def crawl_source(source_config: dict) -> tuple:
                 for i, article in enumerate(articles):
                     logger.info(f"Processing article {i+1}/{len(articles)}: {article.get('title', 'Unknown')}")
                     
-                    # Record start time for extraction performance tracking
+                    # Record start time for extraction performance track
                     start_time = time.time()
                     
                     # Process the article
