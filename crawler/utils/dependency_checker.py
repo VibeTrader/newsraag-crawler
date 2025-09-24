@@ -4,7 +4,14 @@ Dependency checker for NewsRagnarok Crawler.
 import os
 import time
 import asyncio
+import sys
+import os
 from loguru import logger
+
+# Simple fix: add project root to path if not there
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from clients.vector_client import VectorClient
 from utils.azure_utils import check_azure_connection
