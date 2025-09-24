@@ -147,9 +147,7 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
                     }
                 ),
                 excluded_tags=['nav', 'footer', 'aside', 'header', 'script', 'style', 'iframe', 'form', 'button', 'input', 'menu', 'menuitem'],
-                remove_overlay_elements=True,
-                # Use a longer timeout
-                timeout_ms=60000,  # 60 second timeout
+                remove_overlay_elements=True
             )
             
             # Run crawler using the passed instance

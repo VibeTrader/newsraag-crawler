@@ -48,14 +48,16 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
         # Check if LLM cleaning is enabled
         self.use_llm_cleaning = EnvironmentValidator.is_llm_cleaning_enabled()
         
-        logger.info(f"[{self.name}] LLM cleaning is {'enabled' if self.use_llm_cleaning else 'disabled'}")    async def get_urls(self) -> List[BabyPipsUrlData]:
+        logger.info(f"[{self.name}] LLM cleaning is {'enabled' if self.use_llm_cleaning else 'disabled'}")
+    
+    async def get_urls(self) -> List[BabyPipsUrlData]:
         """Get URLs from the BabyPips RSS feed.
         
         Returns:
             A list of tuples (url, title, pubDate, creator, category)
         """
         # rss_url = "https://www.babypips.com/feed.rss" # Remove hardcoded URL
-        logger.info(f"[{self.name}] Fetching URLs from {self.rss_url}...") # Use logger
+        logger.info(f"[{self.name}] Fetching URLs from {self.rss_url}...")
         try:
             response = requests.get(self.rss_url) # Use the stored URL
             response.raise_for_status()
@@ -65,11 +67,11 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
             # Get yesterday's date in PST
             current_pst = get_current_pst_time()
             if not current_pst:
-                logger.error(f"[{self.name}] Error: Could not determine current PST time for filtering.") # Use logger
+                logger.error(f"[{self.name}] Error: Could not determine current PST time for filtering.")
                 return []
             # Ensure yesterday_pst is timezone-aware for comparison
             yesterday_pst = (current_pst - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            logger.info(f"[{self.name}] Filtering articles published after (PST): {yesterday_pst}") # Use logger
+            logger.info(f"[{self.name}] Filtering articles published after (PST): {yesterday_pst}")
 
             for item in root.findall('.//item'):
                 # Extract and clean CDATA sections
@@ -112,21 +114,23 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                         # Append original timezone-aware datetime_obj
                         urls.append((link, title, datetime_obj, creator, category))
                 except ValueError as e:
-                    logger.error(f"[{self.name}] Error parsing date {pubDate}: {e}") # Use logger
+                    logger.error(f"[{self.name}] Error parsing date {pubDate}: {e}")
                 except Exception as parse_e:
                     logger.error(f"[{self.name}] Unexpected error processing item for URL {link}: {parse_e}", exc_info=True)
                     
             logger.info(f"[{self.name}] Found {len(urls)} recent articles.")
             return urls
         except requests.exceptions.RequestException as req_e:
-             logger.error(f"[{self.name}] Error fetching RSS feed: {req_e}", exc_info=True) # Use logger
-             return []
+            logger.error(f"[{self.name}] Error fetching RSS feed: {req_e}", exc_info=True)
+            return []
         except ElementTree.ParseError as xml_e:
-             logger.error(f"[{self.name}] Error parsing XML from {self.rss_url}: {xml_e}", exc_info=True)
-             return []
+            logger.error(f"[{self.name}] Error parsing XML from {self.rss_url}: {xml_e}", exc_info=True)
+            return []
         except Exception as e:
-            logger.error(f"[{self.name}] Unexpected error fetching URLs: {e}", exc_info=True) # Use logger
-            return []    async def process_url(self, url_data: BabyPipsUrlData, crawler_instance: AsyncWebCrawler) -> bool:
+            logger.error(f"[{self.name}] Unexpected error fetching URLs: {e}", exc_info=True)
+            return []
+            
+    async def process_url(self, url_data: BabyPipsUrlData, crawler_instance: AsyncWebCrawler) -> bool:
         """Process a single URL from BabyPips.
         
         Args:
@@ -164,9 +168,7 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                         "ignore_tables": False,  # Allow tables
                         "ignore_horizontal_rules": True
                     }
-                ),
-                # Use a longer timeout for BabyPips
-                timeout_ms=60000,  # 60 second timeout
+                )
             )
             
             # Run crawler using the passed instance
@@ -178,7 +180,7 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
             )
             
             if result.success and result.markdown and result.markdown.raw_markdown: # Check markdown content
-                logger.info(f"[{self.name}] Successfully crawled: {url}") # Use logger
+                logger.info(f"[{self.name}] Successfully crawled: {url}")
                 
                 # Create a safe title part for the filename/blob name
                 safe_title_part = re.sub(r'[^\w\-_.]', '_', title)[:200]
@@ -223,7 +225,8 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                     # Use traditional regex-based cleaning
                     logger.info(f"[{self.name}] Using regex-based content cleaning")
                     cleaned_markdown = clean_markdown(result.markdown.raw_markdown)
-                    cleaning_method = "regex"                
+                    cleaning_method = "regex"
+                
                 logger.info(f"[{self.name}] Cleaned content length: {len(cleaned_markdown)} characters")
                 logger.info(f"[{self.name}] Cleaned content preview: {cleaned_markdown[:200]}...")
                 
@@ -317,13 +320,13 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                 # Mark this URL as processed
                 self.url_cache.mark_processed(url)
                 
-                logger.info(f"[{self.name}] Successfully processed and saved: {url}") # Use logger
-                logger.info(f"[{self.name}] Content length: {len(cleaned_markdown)}") # Use logger
+                logger.info(f"[{self.name}] Successfully processed and saved: {url}")
+                logger.info(f"[{self.name}] Content length: {len(cleaned_markdown)}")
                 return True
             else:
                 error_msg = result.error_message if result else "Unknown error or empty content"
-                logger.error(f"[{self.name}] Crawling failed for {url}: {error_msg}") # Use logger
+                logger.error(f"[{self.name}] Crawling failed for {url}: {error_msg}")
                 return False
         except Exception as e:
-            logger.error(f"[{self.name}] Unexpected error processing {url}: {e}", exc_info=True) # Use logger
+            logger.error(f"[{self.name}] Unexpected error processing {url}: {e}", exc_info=True)
             return False
