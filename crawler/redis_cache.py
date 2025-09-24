@@ -36,12 +36,11 @@ class RedisUrlCache:
             self.redis_client.ping() # Test connection
             logger.info(f"Successfully connected to Redis for source '{self.source_name}'")
         except redis.exceptions.ConnectionError as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            # Consider how to handle this - maybe raise the exception or fallback?
-            # For now, we'll log and the methods will fail gracefully if client is None
+            logger.warning(f"Redis not available, falling back to in-memory caching: {e}")
+            # This is expected when Redis is not configured - use graceful fallback
             self.redis_client = None
         except Exception as e:
-            logger.error(f"An unexpected error occurred during Redis initialization: {e}")
+            logger.warning(f"Redis initialization failed, falling back to in-memory caching: {e}")
             self.redis_client = None
 
 
@@ -60,10 +59,10 @@ class RedisUrlCache:
         try:
             return self.redis_client.sismember(self.redis_key, url)
         except redis.exceptions.ConnectionError as e:
-            logger.error(f"Redis connection error during is_processed: {e}")
-            return False # Treat connection errors as unprocessed?
+            logger.warning(f"Redis connection unavailable during status check: {e}")
+            return False  # Treat connection errors as unprocessed?
         except Exception as e:
-            logger.error(f"Error checking processed status in Redis for {url}: {e}")
+            logger.warning(f"Redis operation failed, using fallback behavior for {url}: {e}")
             return False
 
     def mark_processed(self, url: str) -> None:
@@ -78,9 +77,9 @@ class RedisUrlCache:
         try:
             self.redis_client.sadd(self.redis_key, url)
         except redis.exceptions.ConnectionError as e:
-            logger.error(f"Redis connection error during mark_processed: {e}")
+            logger.warning(f"Redis connection unavailable during mark_processed: {e}")
         except Exception as e:
-            logger.error(f"Error marking URL as processed in Redis for {url}: {e}")
+            logger.warning(f"Redis operation failed during mark_processed for {url}: {e}")
 
     def reset(self) -> None:
         """Reset the URL cache for this source by deleting the Redis key."""
@@ -91,6 +90,6 @@ class RedisUrlCache:
             self.redis_client.delete(self.redis_key)
             logger.info(f"Reset Redis URL cache for source '{self.source_name}' (Key: {self.redis_key})")
         except redis.exceptions.ConnectionError as e:
-            logger.error(f"Redis connection error during reset: {e}")
+            logger.warning(f"Redis connection unavailable during reset: {e}")
         except Exception as e:
-            logger.error(f"Error resetting Redis cache for source '{self.source_name}': {e}") 
+            logger.warning(f"Redis operation failed during reset for source '{self.source_name}': {e}") 

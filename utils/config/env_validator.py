@@ -86,7 +86,7 @@ class EnvironmentValidator:
             "embedding_deployment": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
             "embedding_model": os.getenv("AZURE_OPENAI_EMBEDDING_MODEL"),
             "embedding_dimension": int(os.getenv("EMBEDDING_DIMENSION", "3072")),
-            "temperature": float(os.getenv("LLM_TEMPERATURE", "0.1")),
+            "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
             "token_limit": int(os.getenv("LLM_TOKEN_LIMIT_PER_REQUEST", "4000")),
             "max_content_length": int(os.getenv("LLM_MAX_CONTENT_LENGTH", "100000"))
         }
