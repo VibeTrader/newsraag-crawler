@@ -1,5 +1,5 @@
 """
-FXStreet crawler module.
+FXStreet crawler module with LLM-based content cleaning.
 """
 import re
 from datetime import datetime, timedelta, timezone
@@ -20,11 +20,15 @@ from utils.azure_utils import upload_json_to_azure, check_azure_connection
 from utils.time_utils import convert_to_pst, get_current_pst_time 
 from clients.vector_client import VectorClient 
 
+# Import LLM cleaner and environment validator
+from utils.llm.cleaner import create_llm_cleaner
+from utils.config.env_validator import EnvironmentValidator
+
 # Define the URL data type for FXStreet
 FXStreetUrlData = Tuple[str, str, datetime]  # url, title, pubDate
 
 class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
-    """Crawler for FXStreet website."""
+    """Crawler for FXStreet website with LLM-based content cleaning."""
     
     def __init__(self, rss_url: str = "https://www.fxstreet.com/rss/news"):
         """Initialize the FXStreet crawler.
@@ -34,7 +38,10 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
         """
         super().__init__("fxstreet")
         self.rss_url = rss_url
-    
+        
+        # Check if LLM cleaning is enabled
+        self.use_llm_cleaning = EnvironmentValidator.is_llm_cleaning_enabled()
+        logger.info(f"[{self.name}] LLM cleaning is {'enabled' if self.use_llm_cleaning else 'disabled'}")    
     async def get_urls(self) -> List[FXStreetUrlData]:
         """Get URLs from the FXStreet RSS feed.
         
@@ -99,8 +106,7 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
             return []
         except Exception as e:
             logger.error(f"[{self.name}] Unexpected error fetching URLs: {e}", exc_info=True)
-            return []
-    
+            return []    
     async def process_url(self, url_data: FXStreetUrlData, crawler_instance: AsyncWebCrawler) -> bool:
         """Process a single URL from FXStreet.
         
@@ -119,11 +125,7 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
             return True
         
         logger.info(f"[{self.name}] Processing URL: {url}")
-        # TODO: Implement crawling, content extraction, cleaning, Azure upload, Qdrant indexing logic
         
-        # Mark this URL as processed (even if processing fails for now)
-        # self.url_cache.mark_processed(url) # Move this to the end of successful processing
-        # return False # Return False until fully implemented
         try:
             # Define crawler configuration
             crawl_config = CrawlerRunConfig(
@@ -161,11 +163,62 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
             if result.success and result.markdown and result.markdown.raw_markdown:
                 logger.info(f"[{self.name}] Successfully crawled: {url}")
                 
-                # Clean and format the markdown content
-                cleaned_markdown = clean_markdown(result.markdown.raw_markdown)
+                # Log original content
+                logger.info(f"[{self.name}] Original content length: {len(result.markdown.raw_markdown)} characters")
+                logger.info(f"[{self.name}] Original content preview: {result.markdown.raw_markdown[:200]}...")
                 
-                # Prepend title metadata (FXStreet RSS doesn't provide author/category)
-                cleaned_markdown = f'# {title}\n\n{cleaned_markdown}'
+                # Initialize variables for extracted metadata and cleaning method
+                extracted_metadata = {}
+                cleaned_markdown = None
+                cleaning_method = "none"
+                author = None
+                category = None
+                
+                # Clean content using LLM if enabled
+                if self.use_llm_cleaning:
+                    logger.info(f"[{self.name}] Attempting LLM-based content cleaning for {url}")
+                    llm_cleaner = create_llm_cleaner()
+                    llm_result = await llm_cleaner.clean_content(
+                        result.markdown.raw_markdown,
+                        self.name,
+                        url
+                    )
+                    
+                    if llm_result:
+                        cleaned_markdown, extracted_metadata = llm_result
+                        cleaning_method = "llm"
+                        
+                        # Update metadata with extracted information
+                        if extracted_metadata.get("title") and not title:
+                            title = extracted_metadata.get("title")
+                        if extracted_metadata.get("author"):
+                            author = extracted_metadata.get("author")
+                        if extracted_metadata.get("category"):
+                            category = extracted_metadata.get("category")
+                            
+                        logger.info(f"[{self.name}] Successfully cleaned content with LLM")
+                    else:
+                        # If LLM cleaning fails, log error and skip processing
+                        logger.error(f"[{self.name}] LLM cleaning failed. Skipping URL: {url}")
+                        return False
+                else:
+                    # Use traditional regex-based cleaning
+                    logger.info(f"[{self.name}] Using regex-based content cleaning")
+                    cleaned_markdown = clean_markdown(result.markdown.raw_markdown)
+                    cleaning_method = "regex"
+                
+                logger.info(f"[{self.name}] Cleaned content length: {len(cleaned_markdown)} characters")
+                logger.info(f"[{self.name}] Cleaned content preview: {cleaned_markdown[:200]}...")
+                
+                # Include metadata in the markdown if needed
+                if not cleaned_markdown.startswith(f'# {title}'):
+                    metadata_header = f'# {title}\n\n'
+                    if author:
+                        metadata_header += f'Author: {author}\n\n'
+                    if category:
+                        metadata_header += f'Category: {category}\n\n'
+                    
+                    cleaned_markdown = metadata_header + cleaned_markdown
                 
                 # Prepare article data using OutputModel
                 article = OutputModel(
@@ -186,10 +239,11 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
                 article_dict = article.to_dict() 
                 article_dict.update({
                     "_source": self.name,
-                    "_author": None, # Not available from FXStreet RSS
-                    "_category": None, # Not available from FXStreet RSS
+                    "_author": author,
+                    "_category": category,
                     "_crawled_at": get_timestamp(),
-                    "_article_id": generate_id()
+                    "_article_id": generate_id(),
+                    "_cleaning_method": cleaning_method
                 })
                 
                 # --- Azure Integration --- 
@@ -219,7 +273,8 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
                         "source": article_dict.get("_source"),
                         "author": article_dict.get("_author"),
                         "category": article_dict.get("_category"),
-                        "article_id": article_dict.get("_article_id")
+                        "article_id": article_dict.get("_article_id"),
+                        "cleaning_method": article_dict.get("_cleaning_method")
                     }
                     doc_metadata = {k: v for k, v in doc_metadata.items() if v is not None}
 
@@ -246,11 +301,7 @@ class FXStreetCrawler(BaseCrawlerModule[FXStreetUrlData]):
             else:
                 error_msg = result.error_message if result else "Unknown error"
                 logger.error(f"[{self.name}] Crawling failed for {url}: {error_msg}")
-                # Optionally, mark as processed even on failure to avoid retries?
-                # self.url_cache.mark_processed(url) 
                 return False # Indicate failure
         except Exception as e:
             logger.error(f"[{self.name}] Unexpected error processing URL {url}: {e}", exc_info=True)
-            # Optionally, mark as processed even on failure to avoid retries?
-            # self.url_cache.mark_processed(url) 
-            return False # Indicate failure 
+            return False # Indicate failure

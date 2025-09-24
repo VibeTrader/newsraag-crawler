@@ -1,7 +1,7 @@
 """
 BabyPips crawler module.
 
-This module implements a crawler for the BabyPips website.
+This module implements a crawler for the BabyPips website with LLM-based content cleaning.
 """
 import re
 import requests
@@ -25,12 +25,16 @@ from utils.time_utils import convert_to_pst, get_current_pst_time
 # Import the Vector client
 from clients.vector_client import VectorClient 
 
+# Import LLM cleaner and environment validator
+from utils.llm.cleaner import create_llm_cleaner
+from utils.config.env_validator import EnvironmentValidator
+
 # Define the URL data type for BabyPips
 BabyPipsUrlData = Tuple[str, str, datetime, str, str]  # url, title, pubDate, creator, category
 
 
 class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
-    """Crawler for BabyPips website."""
+    """Crawler for BabyPips website with LLM-based content cleaning."""
     
     def __init__(self, rss_url: str):
         """Initialize the BabyPips crawler.
@@ -40,8 +44,11 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
         """
         super().__init__("babypips")
         self.rss_url = rss_url # Store the RSS URL
-    
-    async def get_urls(self) -> List[BabyPipsUrlData]:
+        
+        # Check if LLM cleaning is enabled
+        self.use_llm_cleaning = EnvironmentValidator.is_llm_cleaning_enabled()
+        
+        logger.info(f"[{self.name}] LLM cleaning is {'enabled' if self.use_llm_cleaning else 'disabled'}")    async def get_urls(self) -> List[BabyPipsUrlData]:
         """Get URLs from the BabyPips RSS feed.
         
         Returns:
@@ -119,9 +126,7 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
              return []
         except Exception as e:
             logger.error(f"[{self.name}] Unexpected error fetching URLs: {e}", exc_info=True) # Use logger
-            return []
-    
-    async def process_url(self, url_data: BabyPipsUrlData, crawler_instance: AsyncWebCrawler) -> bool:
+            return []    async def process_url(self, url_data: BabyPipsUrlData, crawler_instance: AsyncWebCrawler) -> bool:
         """Process a single URL from BabyPips.
         
         Args:
@@ -135,7 +140,7 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
         
         # Check if this URL has already been processed
         if self.url_cache.is_processed(url):
-            logger.info(f"[{self.name}] Skipping already processed URL: {url}") # Use logger
+            logger.info(f"[{self.name}] Skipping already processed URL: {url}")
             return True
         
         try:
@@ -178,20 +183,57 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                 # Create a safe title part for the filename/blob name
                 safe_title_part = re.sub(r'[^\w\-_.]', '_', title)[:200]
 
-                # Clean and format the markdown content
+                # Log original content
                 logger.info(f"[{self.name}] Original content length: {len(result.markdown.raw_markdown)} characters")
                 logger.info(f"[{self.name}] Original content preview: {result.markdown.raw_markdown[:200]}...")
                 
-                cleaned_markdown = clean_markdown(result.markdown.raw_markdown)
+                # Initialize variables for extracted metadata
+                extracted_metadata = {}
+                cleaned_markdown = None
+                cleaning_method = "none"
                 
+                # Clean and format the markdown content using LLM if enabled
+                if self.use_llm_cleaning:
+                    logger.info(f"[{self.name}] Attempting LLM-based content cleaning for {url}")
+                    llm_cleaner = create_llm_cleaner()
+                    llm_result = await llm_cleaner.clean_content(
+                        result.markdown.raw_markdown,
+                        self.name,
+                        url
+                    )
+                    
+                    if llm_result:
+                        cleaned_markdown, extracted_metadata = llm_result
+                        cleaning_method = "llm"
+                        
+                        # Update metadata with extracted information if not empty
+                        if extracted_metadata.get("title") and not title:
+                            title = extracted_metadata.get("title")
+                        if extracted_metadata.get("author") and not creator:
+                            creator = extracted_metadata.get("author")
+                        if extracted_metadata.get("category") and not category:
+                            category = extracted_metadata.get("category")
+                            
+                        logger.info(f"[{self.name}] Successfully cleaned content with LLM")
+                    else:
+                        # If LLM cleaning fails, log error and skip processing
+                        logger.error(f"[{self.name}] LLM cleaning failed. Skipping URL: {url}")
+                        return False
+                else:
+                    # Use traditional regex-based cleaning
+                    logger.info(f"[{self.name}] Using regex-based content cleaning")
+                    cleaned_markdown = clean_markdown(result.markdown.raw_markdown)
+                    cleaning_method = "regex"                
                 logger.info(f"[{self.name}] Cleaned content length: {len(cleaned_markdown)} characters")
                 logger.info(f"[{self.name}] Cleaned content preview: {cleaned_markdown[:200]}...")
                 
-                # Include metadata in the markdown
-                cleaned_markdown = (f'# {title}\n\n'
-                                 f'Author: {creator}\n'
-                                 f'Category: {category}\n\n'
-                                 f'{cleaned_markdown}')
+                # Include metadata in the markdown if needed
+                # Only add metadata if not already present in the cleaned content
+                if not cleaned_markdown.startswith(f'# {title}'):
+                    cleaned_markdown = (f'# {title}\n\n'
+                                    f'Author: {creator}\n'
+                                    f'Category: {category}\n\n'
+                                    f'{cleaned_markdown}')
                 
                 logger.info(f"[{self.name}] Final content length (with metadata): {len(cleaned_markdown)} characters")
                 
@@ -219,7 +261,8 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                     "_author": creator,   
                     "_category": category,
                     "_crawled_at": get_timestamp(),
-                    "_article_id": generate_id()
+                    "_article_id": generate_id(),
+                    "_cleaning_method": cleaning_method
                 })
                 
                 # --- Check Azure Connection --- 
@@ -249,7 +292,8 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                         "source": article_dict.get("_source"),
                         "author": article_dict.get("_author"),
                         "category": article_dict.get("_category"),
-                        "article_id": article_dict.get("_article_id")
+                        "article_id": article_dict.get("_article_id"),
+                        "cleaning_method": article_dict.get("_cleaning_method")
                     }
                     # Remove None values from metadata
                     doc_metadata = {k: v for k, v in doc_metadata.items() if v is not None}

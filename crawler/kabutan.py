@@ -1,5 +1,5 @@
 """
-Kabutan crawler module.
+Kabutan crawler module with LLM-based content cleaning.
 """
 import re
 import os
@@ -24,6 +24,10 @@ from utils.azure_utils import upload_json_to_azure, list_blobs_by_date_prefix, c
 from utils.time_utils import convert_to_pst, get_current_pst_time
 from clients.vector_client import VectorClient
 
+# Import LLM cleaner and environment validator
+from utils.llm.cleaner import create_llm_cleaner
+from utils.config.env_validator import EnvironmentValidator
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -32,7 +36,7 @@ KABUTAN_NEWS_URL = "https://kabutan.jp/news/marketnews/"
 TOKYO_TZ = pytz.timezone("Asia/Tokyo")
 
 class KabutanCrawler:
-    """Crawler for Kabutan.jp website. Fetches, parses, cleans, stores, and indexes news articles. Includes optional translation."""
+    """Crawler for Kabutan.jp website with LLM-based content cleaning. Fetches, parses, cleans, stores, and indexes news articles. Includes optional translation."""
     
     def __init__(self, translate_env_var="KABUTAN_TRANSLATE_ENABLED"):
         """Initialize the Kabutan crawler with optional translation.
@@ -69,14 +73,16 @@ class KabutanCrawler:
         else:
              logger.info(f"[{self.name}] Translation DISABLED ({translate_env_var} is not 'true' or missing).")
 
+        # Check if LLM cleaning is enabled
+        self.use_llm_cleaning = EnvironmentValidator.is_llm_cleaning_enabled()
+        logger.info(f"[{self.name}] LLM cleaning is {'enabled' if self.use_llm_cleaning else 'disabled'}")
 
         # Initialize Qdrant vector client
         try:
             self.vector_client = VectorClient()
         except ValueError as e:
             logger.error(f"[{self.name}] Failed to initialize VectorClient: {e}. Indexing will fail.")
-            self.vector_client = None
-            
+            self.vector_client = None            
     async def close(self):
         """Closes the vector client connection."""
         if self.vector_client:
@@ -101,203 +107,170 @@ class KabutanCrawler:
             logger.error(f"[{self.name}] Unexpected error parsing date '{date_str}': {e}")
             return None
 
-    def _slugify(self, text: str) -> str:
-        """Basic slugify function to create safe filenames."""
-        text = re.sub(r'[^\w\s-]', '', text).strip().lower()
-        text = re.sub(r'[-\s]+', '-', text)
-        return text
-
-    def _generate_blob_name(self, title: str, url: str) -> str:
-        """Generates a unique and somewhat readable blob name."""
-        slug_title = self._slugify(title)
-        url_hash = hashlib.md5(url.encode()).hexdigest()[:8] # Short hash
-        # Limit slug length to avoid overly long filenames
-        max_slug_len = 50 
-        return f"{slug_title[:max_slug_len]}_{url_hash}.json"
-
-    def _check_if_processed(self, blob_name: str, publish_date_pst: datetime) -> bool:
-        """Checks if a blob with the given name exists for the specified date."""
-        try:
-            target_blob_path = construct_blob_path(blob_name, publish_date_pst)
-            # We only need the date prefix part for listing
-            date_prefix = publish_date_pst.strftime('%Y/%m/%d')
-            existing_blobs = list_blobs_by_date_prefix(date_prefix)
-            # Check if the *full* constructed path exists in the list
-            if target_blob_path in existing_blobs:
-                 logger.info(f"[{self.name}] Article already processed (blob exists): {target_blob_path}")
-                 return True
-            return False
-        except Exception as e:
-            # Log error but assume not processed to allow processing attempt
-            logger.error(f"[{self.name}] Error checking Azure for existing blob {target_blob_path}: {e}")
-            return False
-
-    async def get_urls(self) -> list[dict]:
+    async def fetch_article_urls(self, current_date: date = None) -> List[Dict[str, Any]]:
         """
-        Fetches the Kabutan market news page, parses it to find articles published
-        today (in PST), and returns a list of dictionaries containing article metadata.
-
-        Returns:
-            A list of dictionaries, each containing:
-            {'url': str, 'title': str, 'publish_date_pst': datetime, 'category': str}
-            Returns an empty list if fetching, parsing, or filtering fails.
-        """
-        logger.debug(f"[{self.name}] Entering get_urls method.")
-        articles_today = [] # Initialize default return value
+        Fetches article URLs from Kabutan news page.
         
-        logger.info(f"[{self.name}] Fetching news list from {KABUTAN_NEWS_URL}")
-        current_pst_time = get_current_pst_time()
-        if not current_pst_time:
-            logger.error(f"[{self.name}] Could not determine current PST time. Aborting URL fetch.")
-            return []
-        
-        today_pst = current_pst_time.date()
-        current_year = today_pst.year # Use current year for parsing dates
-
-        try:
-            # Run synchronous requests.get in a separate thread
-            response = await asyncio.to_thread(
-                requests.get, KABUTAN_NEWS_URL, timeout=30
-            )
-            response.raise_for_status()
-            
-            html_content = response.text 
-            detected_encoding = response.apparent_encoding
-            logger.debug(f"[{self.name}] Detected encoding: {detected_encoding}")
-            logger.debug(f"[{self.name}] Successfully fetched HTML content.")
-
-            # --- Moved parsing inside try block --- 
-            logger.info(f"[{self.name}] Parsing HTML content (within try block)")
-            soup = BeautifulSoup(html_content, 'html.parser', from_encoding=detected_encoding)
-            logger.debug(f"[{self.name}] Successfully created BeautifulSoup object.")
-            # --- End Moved --- 
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[{self.name}] Error fetching Kabutan news list: {e}")
-            logger.debug(f"[{self.name}] Exiting get_urls due to RequestException.")
-            return []
-        except Exception as e:
-            logger.error(f"[{self.name}] Unexpected error during fetch/HTML prep/parse: {e}", exc_info=True)
-            logger.debug(f"[{self.name}] Exiting get_urls due to unexpected fetch/prep/parse error.")
-            return []
-
-        # Now work with the soup object created inside the try block
-        news_tables = soup.find_all('table', class_='s_news_list') 
-        if not news_tables:
-            logger.warning(f"[{self.name}] Could not find any news table elements (table.s_news_list). Check selector.")
-            return []
-        
-        # news_rows = news_table.find_all('tr') # Old logic
-        all_rows = []
-        for table in news_tables:
-            all_rows.extend(table.find_all('tr'))
-            
-        logger.info(f"[{self.name}] Found {len(all_rows)} potential news rows across {len(news_tables)} tables. Filtering for today (PST: {today_pst}).")
-
-        # Iterate through all found rows
-        for row in all_rows:
-            try:
-                cells = row.find_all('td')
-                if len(cells) < 3: continue # Ensure at least 3 cells
-
-                # 1. Extract Date (Index 0 - Correct)
-                date_str = cells[0].text.strip() 
-                
-                # --- Selector Fix --- 
-                # 2. Extract Category (Now Index 1)
-                category = cells[1].text.strip() # Was cells[2]
-                
-                # 3. Extract Title and URL (Now Index 2's link)
-                title_link = cells[2].find('a') # Was cells[1]
-                # --- End Selector Fix --- 
-
-                if not title_link or not title_link.has_attr('href'): continue
-                title = title_link.text.strip()
-                relative_url = title_link['href']
-                
-                if relative_url.startswith('/'):
-                    base_url = "https://kabutan.jp"
-                    url = f"{base_url}{relative_url}"
-                else:
-                    url = relative_url 
-
-                publish_date_tokyo = self._parse_date(date_str, current_year)
-                if not publish_date_tokyo: continue
-
-                publish_date_pst = convert_to_pst(publish_date_tokyo)
-                if not publish_date_pst: continue
-
-                if publish_date_pst.date() == today_pst:
-                    logger.debug(f"[{self.name}] Found article for today: {title} (Published PST: {publish_date_pst.date()})" )
-                    articles_today.append({
-                        'url': url,
-                        'title': title,
-                        'publish_date_pst': publish_date_pst,
-                        'category': category,
-                    })
-
-            except Exception as e:
-                logger.error(f"[{self.name}] Error processing row: {e}. Row content: {row.text[:100]}...")
-                continue 
-
-        logger.info(f"[{self.name}] Finished processing. Found {len(articles_today)} articles published today ({today_pst}).")
-        logger.debug(f"[{self.name}] Exiting get_urls method successfully with {len(articles_today)} articles.")
-        return articles_today
-
-    async def _translate_content_with_openai(self, title: str, content: str) -> Tuple[Optional[str], Optional[str]]:
-        """Translate content using OpenAI API directly.
-
         Args:
-            title: The Japanese title to translate
-            content: The Japanese content to translate
-
+            current_date: Date to use for article date parsing (defaults to today in Tokyo).
+                          This helps convert partial date strings (MM/DD) to full dates.
+        
         Returns:
-            Tuple of (translated_title, translated_content). Returns (None, None) on failure.
+            List of article data dictionaries with 'url', 'title', 'date', 'category'
+            sorted by date (newest first).
         """
-        log_prefix = f"[{self.name}:Translate]"
-        if not self.translate_content or not self.openai_client:
-            logger.warning(f"{log_prefix} Translation skipped (disabled or client not initialized).")
-            return None, None # Indicate no translation occurred
-
+        # Use Tokyo's current date if not specified
+        if current_date is None:
+            tokyo_now = datetime.now(TOKYO_TZ)
+            current_date = tokyo_now.date()
+        
+        current_year = current_date.year
+            
+        logger.info(f"[{self.name}] Fetching news article URLs from: {KABUTAN_NEWS_URL}")
+        
         try:
-            logger.debug(f"{log_prefix} Starting translation for title: {title[:30]}...")
-            system_message = """
-            You are a professional Japanese to English translator specializing in financial markets.
-            Translate the provided Japanese text into natural, accurate English while preserving
-            financial terminology, proper names, and the overall meaning.
-
-            Return your response in JSON format with these fields:
-            {
-                "translated_title": "The translated title in English",
-                "translated_content": "The translated content in English"
-            }
-            """
-
-            # Create a simplified version of content if it's too long for the prompt (adjust token limit as needed)
-            # This is a rough estimate; a proper tokenizer would be better for precision.
-            max_prompt_chars = 12000 # Rough estimate for ~4k tokens for prompt + response headroom
-            content_preview = content
-            if len(title) + len(content) > max_prompt_chars:
-                 available_chars = max_prompt_chars - len(title) - 100 # Leave headroom
-                 content_preview = content[:available_chars] + ("..." if len(content) > available_chars else "")
-                 logger.warning(f"{log_prefix} Content truncated for translation prompt (length: {len(content)} -> {len(content_preview)})")
-
-
+            response = requests.get(KABUTAN_NEWS_URL, timeout=30)
+            response.raise_for_status()  # Raises exception for 4XX/5XX responses
+            response.encoding = 'utf-8'  # Ensure proper encoding for Japanese text
+            
+            # Parse HTML with BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Find all news items on the page (adjust selectors based on site structure)
+            articles = []
+            
+            # Yesterday's date in Tokyo timezone for filtering recent articles
+            tokyo_now = datetime.now(TOKYO_TZ)
+            yesterday_tokyo = (tokyo_now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            logger.info(f"[{self.name}] Filtering articles published after (Tokyo): {yesterday_tokyo}")
+            
+            # Find news table - Update these selectors to match actual HTML structure
+            news_table = soup.select_one('table.s_news_list')
+            if not news_table:
+                logger.error(f"[{self.name}] Failed to find news table on page. Check selector.")
+                return []
+            
+            news_rows = news_table.select('tr:has(th a)')  # Select rows with link in th
+            if not news_rows:
+                logger.error(f"[{self.name}] Found news table but no news rows. Check selector.")
+                return []
+                
+            logger.info(f"[{self.name}] Found {len(news_rows)} news rows in table.")
+                
+            for row in news_rows:
+                try:
+                    # Extract article details from row
+                    link_elem = row.select_one('th a') 
+                    if not link_elem or not link_elem.has_attr('href'):
+                        continue
+                    
+                    # Get relative URL and make absolute
+                    rel_url = link_elem['href']
+                    url = f"https://kabutan.jp{rel_url}"
+                    
+                    # Get title
+                    title = link_elem.get_text().strip()
+                    
+                    # Get date string - ADJUST selector to match actual HTML
+                    date_cell = row.select_one('td.news_time')
+                    if not date_cell:
+                        logger.warning(f"[{self.name}] Could not find date for article: {title[:30]}")
+                        continue
+                    date_str = date_cell.get_text().strip()
+                    
+                    # Get category - ADJUST selector to match actual HTML
+                    category_cell = row.select_one('td.news_category')
+                    category = category_cell.get_text().strip() if category_cell else "General"
+                    
+                    # Parse date with current year
+                    pub_date = self._parse_date(date_str, current_year) 
+                    if not pub_date:
+                        logger.warning(f"[{self.name}] Could not parse date '{date_str}' for article: {title[:30]}. Skipping.")
+                        continue
+                    
+                    # Check if article is recent enough
+                    if pub_date >= yesterday_tokyo:
+                        # Convert to PST for standard storage convention
+                        pub_date_pst = convert_to_pst(pub_date)
+                        if not pub_date_pst:
+                            logger.error(f"[{self.name}] Could not convert date to PST: {pub_date}. Using original date.")
+                            pub_date_pst = pub_date
+                        
+                        articles.append({
+                            'url': url,
+                            'title': title,
+                            'date': pub_date,
+                            'date_pst': pub_date_pst,
+                            'category': category
+                        })
+                    else:
+                        logger.debug(f"[{self.name}] Skipping older article: {title[:30]} from {pub_date}")
+                except Exception as e:
+                    logger.error(f"[{self.name}] Error processing news row: {e}")
+                    continue
+            
+            # Sort by date, newest first
+            articles.sort(key=lambda x: x['date'], reverse=True)
+            logger.info(f"[{self.name}] Found {len(articles)} recent articles from Kabutan.")
+            
+            return articles
+        
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[{self.name}] Error fetching news list page: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"[{self.name}] Unexpected error in fetch_article_urls: {e}", exc_info=True)
+            return []    
+    async def _translate_content(self, title: str, content: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Translates article title and content from Japanese to English using Azure OpenAI.
+        
+        Args:
+            title: The Japanese article title
+            content: The Japanese article content
+            
+        Returns:
+            Tuple of (translated_title, translated_content), or (None, None) if translation fails
+        """
+        if not self.openai_client or not self.translate_content:
+            logger.warning(f"[{self.name}] Translation not enabled or OpenAI client not initialized.")
+            return None, None
+            
+        if not title or not content:
+            logger.warning(f"[{self.name}] Cannot translate empty title or content.")
+            return None, None
+            
+        log_prefix = f"[{self.name}] [Translation]"
+        
+        # Generate a content hash for logging
+        content_hash = hashlib.md5(content[:100].encode('utf-8')).hexdigest()[:8]
+        logger.info(f"{log_prefix} Translating article {content_hash}: {title[:30]}...")
+        
+        try:
+            # Prepare system prompt for translation
+            system_prompt = """You are a professional Japanese to English translator specializing in financial news. 
+            Translate the provided Japanese financial article into clear, professional English.
+            Preserve financial terms, company names, numerical data, and dates accurately.
+            Return ONLY a JSON object with two fields: 
+            "translated_title": <the English title>,
+            "translated_content": <the English content in Markdown format>
+            Don't include any explanations or notes outside the JSON object."""
+            
+            # Prepare user prompt with content to translate
             user_message = f"""
-            Please translate the following Japanese financial news to English:
-
-            TITLE: {title}
-
-            CONTENT:
-            {content_preview}
+            # Japanese Original Title
+            {title}
+            
+            # Japanese Original Content
+            {content}
+            
+            Translate both the title and content to English. Keep formatting (paragraphs, lists) intact.
             """
-
-            # Make the API call using the async client
+            
             response = await self.openai_client.chat.completions.create(
                 model=self.openai_model,
-                response_format={"type": "json_object"},
                 messages=[
-                    {"role": "system", "content": system_message},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ],
                 temperature=0.3 # Lower temperature for more factual translation
@@ -330,7 +303,6 @@ class KabutanCrawler:
         except Exception as e:
             logger.error(f"{log_prefix} Unexpected error during translation: {e}", exc_info=True)
             return None, None
-
     async def process_url(self, article_data: Dict[str, Any], shared_crawler: AsyncWebCrawler) -> bool:
         """
         Processes a single article: checks cache, fetches content, cleans,
@@ -348,187 +320,253 @@ class KabutanCrawler:
         """
         url = article_data.get('url')
         title = article_data.get('title') # Original Title (Japanese)
-        publish_date_pst = article_data.get('publish_date_pst')
         category = article_data.get('category')
-
-        processing_success = False
-        log_prefix = f"[{self.name}:{title[:20]}]"
-
-        if not shared_crawler:
-            logger.error(f"{log_prefix} Invalid shared_crawler instance received.")
-            return False
-            
-        if not all([url, title, publish_date_pst, category]):
-             logger.error(f"{log_prefix} Missing essential article data (url, title, date, or category)")
-             return False
+        date = article_data.get('date')
+        date_pst = article_data.get('date_pst')
         
-        logger.info(f"{log_prefix} Processing article: {url}")
-
-        # 1. Check cache (using Azure blob existence)
-        blob_name = self._generate_blob_name(title, url)
-        if self._check_if_processed(blob_name, publish_date_pst):
-            logger.info(f"{log_prefix} Status: Already processed.")
-            return True
-
-        # 2. Fetch and Clean Content
-        logger.debug(f"{log_prefix} Article not cached. Fetching content...")
+        if not url or not title or not date:
+            logger.error(f"[{self.name}] Missing required article data (url/title/date). Cannot process.")
+            return False
+        
+        logger.info(f"[{self.name}] Processing article: {url}")
+        
+        # Calculate cache key from URL
+        cache_key = hashlib.md5(url.encode()).hexdigest()
+        
+        # Check if already processed in a previous run
+        # Using Azure Blob Storage to check for existing articles
+        # (this avoids re-crawling and re-translating articles we already processed)
         try:
-            # Define crawler configuration consistent with other crawlers
+            existing_blobs = []
+            if date_pst:
+                # Create date prefix for blob storage (e.g., 2023/09/25/)
+                date_prefix = date_pst.strftime("%Y/%m/%d/")
+                # List blobs with this date prefix
+                existing_blobs = list_blobs_by_date_prefix(date_prefix)
+            
+            # Check if this URL is already processed (by searching for URL in blob content)
+            for blob_name in existing_blobs:
+                if cache_key in blob_name or url in blob_name:
+                    logger.info(f"[{self.name}] Article already processed and stored: {url}")
+                    return True # Already processed, consider this success
+        except Exception as e:
+            logger.error(f"[{self.name}] Error checking Azure blob cache: {e}")
+            # Continue processing (worst case: we re-process an article)
+        
+        # Crawl article page to get content
+        try:
+            # Create crawler configuration for Japanese content
             crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.BYPASS,
-                # Verify these selectors for Kabutan article pages
-                css_selector=".news_det_story, .news_body, #news_text, #main",
+                css_selector=".news_content, .article-content, .content, #readArea, .body", # Adjust selectors for Kabutan
                 markdown_generator=DefaultMarkdownGenerator(
                     content_filter=PruningContentFilter(
-                        threshold=0.85,
+                        threshold=0.85,  # Lower threshold
                         threshold_type="fixed",
                         min_word_threshold=50,
-                        user_query="Main article content only"
+                        user_query="株式ニュース本文のみ" # Japanese for "Stock news content only"
                     ),
                     options={
                         "ignore_links": True,
                         "ignore_images": True,
-                        "ignore_tables": True,
+                        "ignore_tables": False, # Allow tables for financial data
                         "ignore_horizontal_rules": True
                     }
                 ),
                 excluded_tags=['nav', 'footer', 'aside', 'header', 'script', 'style', 'iframe', 'form', 'button', 'input', 'menu', 'menuitem'],
-                remove_overlay_elements=True
+                remove_overlay_elements=True,
+                # Use a longer timeout for Japanese content
+                timeout_ms=60000,  # 60 second timeout
             )
-
-            # Use arun with CrawlerRunConfig
-            session_id = f"kabutan_session_{url[:50]}"
-            crawl_result = await shared_crawler.arun(
+            
+            # Run crawler with shared instance
+            session_id = f"kabutan_session_{cache_key}"
+            result = await shared_crawler.arun(
                 url=url,
                 config=crawl_config,
                 session_id=session_id
             )
-
-            if not crawl_result or not crawl_result.success or not crawl_result.markdown or not crawl_result.markdown.raw_markdown:
-                error_msg = crawl_result.error_message if crawl_result else "Crawler returned None"
-                if crawl_result and not crawl_result.markdown:
-                    error_msg = "Markdown generation failed or content was empty"
-                logger.warning(f"{log_prefix} crawl4ai (shared) did not return valid data for URL: {url}. Error: {error_msg}")
-                return False
-
-            raw_markdown = crawl_result.markdown.raw_markdown
-            cleaned_markdown = clean_markdown(raw_markdown)
-            logger.debug(f"{log_prefix} Markdown cleaned (length: {len(cleaned_markdown)}).")
-
-        except Exception as e:
-            logger.error(f"{log_prefix} Error during crawl4ai/cleaning for {url}: {e}", exc_info=True)
-            return False
-
-        # --- Translation Step ---
-        translated_title: Optional[str] = None
-        translated_content: Optional[str] = None
-        if self.translate_content and cleaned_markdown:
-            logger.info(f"{log_prefix} Attempting translation...")
-            translated_title, translated_content = await self._translate_content_with_openai(title, cleaned_markdown)
-            if translated_title and translated_content:
-                 logger.info(f"{log_prefix} Translation successful.")
-            else:
-                 logger.warning(f"{log_prefix} Translation failed or was skipped. Using original content.")
-        elif not cleaned_markdown:
-             logger.warning(f"{log_prefix} Skipping translation because cleaned markdown is empty.")
-
-
-        # 3. Prepare JSON data
-        # Ensure publish_date_pst is timezone-aware
-        if publish_date_pst.tzinfo is None:
-            pst_tz = pytz.timezone("America/Los_Angeles") 
-            try:
-                publish_date_pst = pst_tz.localize(publish_date_pst) if not publish_date_pst.tzinfo else publish_date_pst.astimezone(pst_tz)
-            except Exception as tz_err:
-                 logger.error(f"{log_prefix} Failed to make publish_date_pst timezone-aware: {tz_err}")
-                 return False
-        
-        final_data = {
-            "source": self.name,
-            "url": url,
-            "title": title,
-            "category": category,
-            "publish_date_pst": publish_date_pst.isoformat(),
-            "extracted_content_markdown": cleaned_markdown,
-            "processing_timestamp_utc": datetime.now(pytz.utc).isoformat()
-        }
-
-        # Add translation data if available
-        if translated_title and translated_content:
-            final_data["translated_title"] = translated_title
-            final_data["translated_content_markdown"] = translated_content
-            final_data["translation_model"] = self.openai_model
-            final_data["translated"] = True
-        else:
-            final_data["translated"] = False
-            final_data["translation_model"] = None
-
-        # 4. Upload to Azure
-        logger.info(f"{log_prefix} Uploading processed data to Azure: {blob_name}")
-        azure_success, azure_message_or_url = upload_json_to_azure(
-            json_data=final_data,
-            blob_name=blob_name,
-            publish_date_pst=publish_date_pst
-        )
-
-        if not azure_success:
-            logger.error(f"{log_prefix} Failed to upload to Azure: {azure_message_or_url}")
-            return False
-        else:
-            logger.info(f"{log_prefix} Successfully uploaded to Azure: {azure_message_or_url}")
-
-        # 5. Index in Qdrant
-        if not self.vector_client:
-            logger.error(f"{log_prefix} Qdrant vector client not initialized; skipping indexing.")
-            # If upload succeeded but indexing skipped due to client init error,
-            # consider if this should be True or False based on requirements.
-            # Let's keep it False as full processing didn't complete.
-            return False # Treat as failure if indexing client is missing
-
-        logger.info(f"{log_prefix} Indexing content in Qdrant...")
-
-        # Determine content and title for indexing (prefer translated if available)
-        indexing_content = final_data.get("translated_content_markdown", cleaned_markdown)
-        # Use translated title if available for metadata, otherwise original
-        indexing_metadata_title = final_data.get("translated_title", title)
-
-
-        qdrant_metadata = {
-            "source": final_data["source"],
-            "url": final_data["url"],
-            "title": indexing_metadata_title, # Use translated title if available
-            "original_title": title,          # Always store original title
-            "category": final_data["category"],
-            "publish_date_pst": final_data["publish_date_pst"],
-            "azure_blob_url": azure_message_or_url,
-            "translated": final_data.get("translated", False),
-            "translation_model": final_data.get("translation_model")
-        }
-
-        # Ensure we don't try to index empty content
-        if not indexing_content:
-             logger.warning(f"{log_prefix} Skipping Qdrant indexing because content is empty (original and translated).")
-             # If Azure upload succeeded, maybe return True here? For now, let's say indexing failure = process failure.
-             return False
-
-
-        try:
-            vector_response = await self.vector_client.add_document(
-                text_content=indexing_content, # Index translated or original content
-                metadata=qdrant_metadata
-            )
             
-            if vector_response and vector_response.get("status") in ["success", "duplicated"]:
-                vector_status = vector_response.get("status")
-                logger.info(f"{log_prefix} Successfully indexed in {self.vector_client.backend} (Status: {vector_status}).")
-                processing_success = True
+            if not result.success or not result.markdown or not result.markdown.raw_markdown:
+                logger.error(f"[{self.name}] Failed to crawl article: {url}. Error: {result.error_message if result else 'Unknown error'}")
+                return False
+                
+            # Get the raw content
+            raw_content = result.markdown.raw_markdown
+            
+            # Log original content statistics
+            logger.info(f"[{self.name}] Raw content length: {len(raw_content)} characters")
+            logger.info(f"[{self.name}] Raw content preview: {raw_content[:100]}...")
+            
+            # Initialize variables
+            cleaned_japanese_content = None
+            cleaning_method = "none"
+            extracted_metadata = {}
+            
+            # Clean content using LLM if enabled (with Japanese-specific prompt)
+            if self.use_llm_cleaning:
+                logger.info(f"[{self.name}] Attempting LLM-based content cleaning for {url}")
+                llm_cleaner = create_llm_cleaner()
+                llm_result = await llm_cleaner.clean_content(
+                    raw_content,
+                    self.name,
+                    url
+                )
+                
+                if llm_result:
+                    cleaned_japanese_content, extracted_metadata = llm_result
+                    cleaning_method = "llm"
+                    
+                    # Update metadata with extracted information
+                    if extracted_metadata.get("title") and not title:
+                        title = extracted_metadata.get("title")
+                    if extracted_metadata.get("category") and not category:
+                        category = extracted_metadata.get("category")
+                        
+                    logger.info(f"[{self.name}] Successfully cleaned Japanese content with LLM")
+                else:
+                    # If LLM cleaning fails, fall back to regex cleaning
+                    logger.error(f"[{self.name}] LLM cleaning failed for Japanese content. Using regex cleaning.")
+                    cleaned_japanese_content = clean_markdown(raw_content)
+                    cleaning_method = "regex_fallback"
             else:
-                error_detail = vector_response.get("message") if vector_response else "No response/error"
-                logger.error(f"{log_prefix} Failed to index in {self.vector_client.backend}: {error_detail}")
-                processing_success = False
-        
+                # Use traditional regex-based cleaning
+                logger.info(f"[{self.name}] Using regex-based content cleaning")
+                cleaned_japanese_content = clean_markdown(raw_content)
+                cleaning_method = "regex"
+            
+            logger.info(f"[{self.name}] Cleaned Japanese content length: {len(cleaned_japanese_content)} characters")
+            
+            # Format markdown with title
+            if not cleaned_japanese_content.startswith(f'# {title}'):
+                cleaned_japanese_content = f"# {title}\n\n{cleaned_japanese_content}"
+            
+            # Translate if enabled
+            translated_title = None
+            translated_content = None
+            
+            if self.translate_content and self.openai_client:
+                logger.info(f"[{self.name}] Translating content for {url}")
+                translated_title, translated_content = await self._translate_content(title, cleaned_japanese_content)
+                
+                if translated_title and translated_content:
+                    logger.info(f"[{self.name}] Translation successful.")
+                else:
+                    logger.error(f"[{self.name}] Translation failed for {url}")
+            
+            # Prepare article data
+            article = {
+                "title": title,
+                "title_en": translated_title,
+                "content": cleaned_japanese_content,
+                "content_en": translated_content,
+                "url": url,
+                "category": category,
+                "publish_date": date.isoformat() if isinstance(date, datetime) else str(date),
+                "publish_date_pst": date_pst.isoformat() if isinstance(date_pst, datetime) else str(date_pst),
+                "_source": self.name,
+                "_crawled_at": get_timestamp(),
+                "_article_id": generate_id(),
+                "_cache_key": cache_key,
+                "_cleaning_method": cleaning_method,
+                "_translation_status": "success" if translated_content else "disabled" if not self.translate_content else "failed"
+            }
+            
+            # Save to Azure Blob Storage
+            azure_ok = check_azure_connection()
+            if not azure_ok:
+                logger.error(f"[{self.name}] Skipping Azure upload for {url} due to connection issue.")
+            else:
+                # Safe filename based on date and title
+                date_str = date_pst.strftime("%Y-%m-%d") if isinstance(date_pst, datetime) else "unknown-date"
+                safe_title = re.sub(r'[^\w\-_.]', '_', title[:50])
+                blob_name = f"{self.name}-{date_str}-{cache_key}-{safe_title}.json"
+                
+                logger.info(f"[{self.name}] Uploading article to Azure: {blob_name}")
+                success, msg = upload_json_to_azure(
+                    article,
+                    blob_name=blob_name,
+                    publish_date_pst=date_pst if isinstance(date_pst, datetime) else None
+                )
+                
+                if not success:
+                    logger.error(f"[{self.name}] Azure upload failed for {url}: {msg}")
+            
+            # Index in Qdrant
+            if not self.vector_client:
+                logger.error(f"[{self.name}] Vector client not initialized, skipping indexing.")
+            else:
+                try:
+                    # Choose which content to index (translated if available, otherwise original)
+                    index_content = translated_content if translated_content else cleaned_japanese_content
+                    logger.info(f"[{self.name}] Indexing {'translated' if translated_content else 'original'} content ({len(index_content)} chars)")
+                    
+                    # Prepare metadata - filter None values
+                    doc_metadata = {
+                        "publishDatePst": date_pst.isoformat() if isinstance(date_pst, datetime) else None,
+                        "source": self.name,
+                        "author": None, # Kabutan articles don't have author info
+                        "category": category,
+                        "article_id": article.get("_article_id"),
+                        "cleaning_method": cleaning_method,
+                        "language": "en" if translated_content else "jp",
+                        "translation_status": article.get("_translation_status")
+                    }
+                    doc_metadata = {k: v for k, v in doc_metadata.items() if v is not None}
+                    
+                    # Add to vector DB
+                    add_result = await self.vector_client.add_document(index_content, metadata=doc_metadata)
+                    
+                    if add_result:
+                        logger.info(f"[{self.name}] Successfully indexed article: {title[:30]}")
+                    else:
+                        logger.error(f"[{self.name}] Failed to index article: {title[:30]}")
+                        
+                except Exception as ve:
+                    logger.error(f"[{self.name}] Error indexing document: {ve}", exc_info=True)
+            
+            logger.info(f"[{self.name}] Article processing completed successfully: {url}")
+            return True
+            
         except Exception as e:
-            logger.error(f"{log_prefix} Error during {self.vector_client.backend} indexing for {url}: {e}", exc_info=True)
-            processing_success = False
-
-        return processing_success 
+            logger.error(f"[{self.name}] Error processing article {url}: {e}", exc_info=True)
+            return False
+    async def run(self, shared_crawler: AsyncWebCrawler) -> Tuple[int, int]:
+        """
+        Main entry point for the Kabutan crawler. Fetches all recent articles
+        from Kabutan.jp and processes them.
+        
+        Args:
+            shared_crawler: The shared AsyncWebCrawler instance from main.py.
+            
+        Returns:
+            Tuple of (success_count, error_count)
+        """
+        logger.info(f"[{self.name}] Starting Kabutan crawler")
+        success_count = 0
+        error_count = 0
+        
+        # Fetch all article URLs
+        articles = await self.fetch_article_urls()
+        
+        if not articles:
+            logger.warning(f"[{self.name}] No new articles found to process.")
+            return 0, 0
+        
+        # Process each article
+        for article in articles:
+            try:
+                result = await self.process_url(article, shared_crawler)
+                if result:
+                    success_count += 1
+                else:
+                    error_count += 1
+            except Exception as e:
+                logger.error(f"[{self.name}] Unexpected error processing article {article.get('url')}: {e}", exc_info=True)
+                error_count += 1
+                
+            # Add small delay between articles to avoid rate limiting
+            await asyncio.sleep(1)
+            
+        logger.info(f"[{self.name}] Completed processing with {success_count} successes and {error_count} errors")
+        return success_count, error_count
