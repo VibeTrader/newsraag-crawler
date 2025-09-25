@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+    <channel>
+        <title>BabyPips Forex News - Test Feed</title>
+        <description>Test RSS feed for BabyPips forex education and analysis</description>
+        <link>https://www.babypips.com</link>
+        <language>en-us</language>
+        <lastBuildDate>Mon, 15 Jan 2024 12:00:00 GMT</lastBuildDate>
+        
+        <item>
+            <title>EUR/USD Weekly Forecast: Key Levels and Trading Strategy</title>
+            <link>https://www.babypips.com/learn/forex/eur-usd-weekly-forecast-2024</link>
+            <description>Comprehensive analysis of EUR/USD pair for the upcoming week.</description>
+            <pubDate>Mon, 15 Jan 2024 10:00:00 GMT</pubDate>
+            <guid>eur-usd-forecast-2024-01-15</guid>
+            <category>Forex Analysis</category>
+        </item>
+        
+        <item>
+            <title>Gold Price Analysis: Bullish Momentum Continues</title>
+            <link>https://www.babypips.com/learn/forex/gold-price-analysis-bullish</link>
+            <description>Gold prices maintain bullish momentum as safe-haven demand increases.</description>
+            <pubDate>Mon, 15 Jan 2024 08:30:00 GMT</pubDate>
+            <guid>gold-analysis-2024-01-15</guid>
+            <category>Commodities</category>
+        </item>
+    </channel>
+</rss>
