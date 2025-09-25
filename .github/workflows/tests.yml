@@ -46,11 +46,11 @@ jobs:
 
     - name: Run setup verification tests
       run: |
-        python run_tests.py test tests/test_setup_verification.py -v
+        python run_tests.py test tests/test_setup_verification.py
 
     - name: Run unit tests
       run: |
-        python run_tests.py unit -v -c
+        python run_tests.py unit
       env:
         # Test environment variables
         QDRANT_URL: http://localhost:6333
@@ -67,7 +67,7 @@ jobs:
 
     - name: Run integration tests (non-external)
       run: |
-        python run_tests.py marker integration -v
+        python run_tests.py marker integration
       env:
         # Same test environment variables
         QDRANT_URL: http://localhost:6333
