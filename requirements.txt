@@ -52,7 +52,6 @@ applicationinsights>=0.11.8
 
 
 # Testing dependencies for NewsRaag Crawler
-# Install with: pip install -r requirements-test.txt
 
 # Core testing framework
 pytest>=7.4.0
