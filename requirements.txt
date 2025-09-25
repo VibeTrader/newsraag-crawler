@@ -48,3 +48,39 @@ aiohttp>=3.10.5
 pyyaml
 
 applicationinsights>=0.11.8
+
+
+
+# Testing dependencies for NewsRaag Crawler
+# Install with: pip install -r requirements-test.txt
+
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0  # For async function testing
+pytest-mock>=3.11.0     # For mocking dependencies
+pytest-cov>=4.1.0       # For code coverage reporting
+
+# HTTP mocking
+responses>=0.23.0        # Mock HTTP requests
+httpx>=0.24.0           # Modern HTTP client for testing
+
+# Redis mocking
+fakeredis>=2.18.0       # Mock Redis for testing
+
+# Time mocking
+freezegun>=1.2.0        # Mock time for testing
+
+# Test data generation
+factory-boy>=3.3.0      # Generate test data
+Faker>=19.0.0           # Generate fake data
+
+# Performance testing
+pytest-benchmark>=4.0.0 # Benchmark testing
+
+# Test reporting
+pytest-html>=3.2.0     # HTML test reports
+pytest-json-report>=1.5.0  # JSON test reports
+
+# Additional utilities
+parameterized>=0.9.0    # Parameterized tests
+testcontainers>=3.7.0   # For integration testing with containers (optional)
