@@ -31,10 +31,10 @@ jobs:
       - name: Run critical tests before deployment
         run: |
           # Run setup verification to ensure basic functionality
-          python run_tests.py test tests/test_setup_verification.py -v
+          python run_tests.py test tests/test_setup_verification.py
           
           # Run unit tests
-          python run_tests.py unit -v
+          python run_tests.py all
         env:
           # Test environment variables
           QDRANT_URL: http://localhost:6333
