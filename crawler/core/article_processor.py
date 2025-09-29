@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 
 from clients.vector_client import VectorClient
-from utils.azure_utils import check_azure_connection, upload_json_to_azure
+from crawler.utils.azure_utils import check_azure_connection, upload_json_to_azure
 from utils.time_utils import convert_to_pst
 from utils.dir_utils import generate_id, get_timestamp
 from models.output import OutputModel

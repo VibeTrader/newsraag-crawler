@@ -8,7 +8,7 @@ import re
 from crawl4ai import AsyncWebCrawler
 from models.output import OutputModel
 from utils.clean_markdown import clean_markdown
-from utils.azure_utils import upload_json_to_azure
+from crawler.utils.azure_utils import upload_json_to_azure
 from clients.vector_client import VectorClient
 import asyncio
 import hashlib

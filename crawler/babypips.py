@@ -19,7 +19,7 @@ from models.output import OutputModel
 from utils.clean_markdown import clean_markdown
 from crawler.base import BaseCrawlerModule 
 from utils.dir_utils import get_output_dir, generate_id, get_timestamp
-from utils.azure_utils import upload_json_to_azure, check_azure_connection
+from crawler.utils.azure_utils import upload_json_to_azure, check_azure_connection
 # Import the PST conversion utility
 from utils.time_utils import convert_to_pst, get_current_pst_time 
 # Import the Vector client
@@ -328,5 +328,5 @@ class BabyPipsCrawler(BaseCrawlerModule[BabyPipsUrlData]):
                 logger.error(f"[{self.name}] Crawling failed for {url}: {error_msg}")
                 return False
         except Exception as e:
-            logger.error(f"[{self.name}] Unexpected error processing {url}: {e}", exc_info=True)
+            logger.errorcleclea(f"[{self.name}] Unexpected error processing {url}: {e}", exc_info=True)
             return False

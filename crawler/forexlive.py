@@ -16,7 +16,7 @@ from models.output import OutputModel
 from utils.clean_markdown import clean_markdown
 from crawler.base import BaseCrawlerModule 
 from utils.dir_utils import get_output_dir, generate_id, get_timestamp
-from utils.azure_utils import upload_json_to_azure, check_azure_connection
+from crawler.utils.azure_utils import upload_json_to_azure, check_azure_connection
 from utils.time_utils import convert_to_pst, get_current_pst_time 
 from clients.vector_client import VectorClient
 
