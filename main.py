@@ -403,12 +403,27 @@ if __name__ == "__main__":
             logger.info("Cleanup/recreation operations completed, exiting...")
             sys.exit(0)
     
+    # Run the main application
+    try:
+        asyncio.run(main_application())
+    except KeyboardInterrupt:
+        logger.info("🛑 Received shutdown signal")
+    except Exception as e:
+        logger.error(f"💥 Fatal error: {e}")
+
+async def main_application():
+    """Main application entry point with proper async handling."""
     # Track application start event in App Insights
-    if app_insights.enabled:
-        app_insights.track_event("application_start", {
-            "version": "1.0.0",  # Update with your version
-            "environment": os.environ.get("ENVIRONMENT", "development")
-        })
+    try:
+        from monitoring import init_monitoring
+        _, _, _, app_insights, _ = init_monitoring()
+        if app_insights and app_insights.enabled:
+            app_insights.track_event("application_start", {
+                "version": "1.0.0",
+                "environment": os.environ.get("ENVIRONMENT", "development")
+            })
+    except:
+        pass  # Ignore if monitoring not available
     
     # Ensure data directories exist
     os.makedirs(os.path.join(os.path.dirname(__file__), 'data', 'metrics'), exist_ok=True)
@@ -422,6 +437,7 @@ if __name__ == "__main__":
         # Only start additional health server if not in Azure (since we already started one)
         logger.info(f"🚀 Starting health check server on port {port}")
         try:
+            from crawler.health.health_server import start_health_server
             health_thread = threading.Thread(target=start_health_server, daemon=True)
             health_thread.start()
             time.sleep(2)
