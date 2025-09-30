@@ -1,32 +1,20 @@
 # crawler/factories/source_factory.py
 """
 Factory for creating news sources based on configuration.
-Implements Factory Pattern with support for templates and custom adapters.
+Implements Factory Pattern with template system for unified source management.
 """
 from typing import Dict, Type, Optional, Any, List
-from enum import Enum
 
 from crawler.interfaces.news_source_interface import (
     INewsSource, SourceConfig, SourceType, NewsSourceError
 )
 from crawler.templates.rss_template import RSSNewsSourceTemplate
-from crawler.adapters import (
-    BabyPipsSourceAdapter, FXStreetSourceAdapter, ForexLiveSourceAdapter,
-    KabutanSourceAdapter, PoundSterlingLiveSourceAdapter
-)
-
-
-class SourceCreationStrategy(Enum):
-    """Strategy for source creation."""
-    TEMPLATE_BASED = "template"  # Use template for new sources
-    CUSTOM_ADAPTER = "adapter"   # Use existing crawler adapter
-    LEGACY_CRAWLER = "legacy"    # Direct use of legacy crawler
 
 
 class SourceFactory:
     """
     Factory for creating news source implementations.
-    Supports templates, adapters, and legacy crawlers.
+    Supports template-based source creation through YAML configuration.
     """
     
     # Registry of template classes for each source type
@@ -38,14 +26,8 @@ class SourceFactory:
         # SourceType.API: APITemplate,
     }
     
-    # Registry of custom adapter implementations for specific sources
-    _CUSTOM_ADAPTERS: Dict[str, Type[INewsSource]] = {
-        "babypips": BabyPipsSourceAdapter,
-        "fxstreet": FXStreetSourceAdapter,
-        "forexlive": ForexLiveSourceAdapter,
-        "kabutan": KabutanSourceAdapter,
-        "poundsterlinglive": PoundSterlingLiveSourceAdapter,
-    }
+    # Custom adapters are deprecated - templates handle everything via YAML
+    _CUSTOM_ADAPTERS: Dict[str, Type[INewsSource]] = {}
     
     @classmethod
     def create_source(cls, config: SourceConfig) -> INewsSource:
@@ -67,36 +49,13 @@ class SourceFactory:
             # Validate configuration
             cls._validate_config(config)
             
-            # Determine creation strategy
-            strategy = cls._determine_creation_strategy(config)
-            
-            # Create source based on strategy
-            if strategy == SourceCreationStrategy.CUSTOM_ADAPTER:
-                print(f"Using custom adapter for {config.name}")
-                return cls._create_adapter_source(config)
-            elif strategy == SourceCreationStrategy.TEMPLATE_BASED:
-                print(f"Using template-based implementation for {config.name}")
-                return cls._create_template_source(config)
-            else:
-                raise ValueError(f"Unsupported creation strategy: {strategy}")
+            # Create template-based source (only strategy now)
+            print(f"Using template-based implementation for {config.name}")
+            return cls._create_template_source(config)
             
         except Exception as e:
             print(f"Failed to create source {config.name}: {e}")
             raise NewsSourceError(f"Source creation failed: {e}", config.name)
-    
-    @classmethod
-    def _determine_creation_strategy(cls, config: SourceConfig) -> SourceCreationStrategy:
-        """Determine the best strategy for creating this source."""
-        # Check if custom adapter exists for this specific source
-        if config.name in cls._CUSTOM_ADAPTERS:
-            return SourceCreationStrategy.CUSTOM_ADAPTER
-        
-        # Check if template exists for this source type
-        if config.source_type in cls._TEMPLATE_REGISTRY:
-            return SourceCreationStrategy.TEMPLATE_BASED
-        
-        # Fallback strategy
-        raise ValueError(f"No creation strategy available for {config.name} ({config.source_type})")
     
     @classmethod
     def _validate_config(cls, config: SourceConfig) -> None:
@@ -114,24 +73,6 @@ class SourceFactory:
         print(f"Configuration validated for {config.name}")
     
     @classmethod
-    def _create_adapter_source(cls, config: SourceConfig) -> INewsSource:
-        """Create custom adapter source implementation."""
-        adapter_class = cls._CUSTOM_ADAPTERS.get(config.name)
-        if not adapter_class:
-            raise ValueError(f"No custom adapter found for {config.name}")
-        
-        # Handle different adapter initialization patterns
-        if config.name in ["babypips", "fxstreet", "forexlive"]:
-            # RSS-based adapters need RSS URL
-            return adapter_class(config.rss_url)
-        elif config.name in ["kabutan", "poundsterlinglive"]:
-            # HTML-based adapters need base URL
-            return adapter_class(config.base_url)
-        else:
-            # Generic adapter (assumes SourceConfig constructor)
-            return adapter_class(config)
-    
-    @classmethod
     def _create_template_source(cls, config: SourceConfig) -> INewsSource:
         """Create template-based source implementation."""
         template_class = cls._TEMPLATE_REGISTRY.get(config.source_type)
@@ -147,28 +88,17 @@ class SourceFactory:
         print(f"Registered template {template_class.__name__} for type {source_type.value}")
     
     @classmethod
-    def register_custom_adapter(cls, source_name: str, adapter_class: Type[INewsSource]) -> None:
-        """Register a custom adapter for a specific source."""
-        cls._CUSTOM_ADAPTERS[source_name] = adapter_class
-        print(f"Registered custom adapter {adapter_class.__name__} for {source_name}")
-    
-    @classmethod
     def get_supported_source_types(cls) -> List[SourceType]:
         """Get list of supported source types."""
         return list(cls._TEMPLATE_REGISTRY.keys())
-    
-    @classmethod
-    def get_custom_sources(cls) -> List[str]:
-        """Get list of sources with custom adapters."""
-        return list(cls._CUSTOM_ADAPTERS.keys())
     
     @classmethod
     def can_create_source(cls, config: SourceConfig) -> bool:
         """Check if factory can create source for given configuration."""
         try:
             cls._validate_config(config)
-            strategy = cls._determine_creation_strategy(config)
-            return True
+            # Check if we have a template for this source type
+            return config.source_type in cls._TEMPLATE_REGISTRY
         except Exception:
             return False
     
