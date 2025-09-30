@@ -396,13 +396,25 @@ class BaseContentStorage(IContentStorage):
             )
             
             # Store in vector database
-            success = await self.vector_client.store_document(output)
+            # Prepare metadata for vector storage  
+            doc_metadata = {
+                "title": metadata.title,
+                "source": metadata.source_name,
+                "author": metadata.author,
+                "category": metadata.category,
+                "publishDate": metadata.published_date.isoformat() if metadata.published_date else None,
+                "article_id": metadata.article_id
+            }
             
-            if success:
+            # Use add_document method with content string and metadata dict
+            result = await self.vector_client.add_document(content, doc_metadata)
+            
+            if result and result.get('status') == 'success':
                 print(f"Successfully stored article: {metadata.title[:50]}...")
+                return True
             else:
                 print(f"Failed to store article: {metadata.title[:50]}...")
-            
+                return False
             return success
             
         except Exception as e:
