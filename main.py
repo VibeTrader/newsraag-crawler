@@ -27,6 +27,9 @@ from monitoring.app_insights import get_app_insights
 from crawler.factories import SourceFactory, load_sources_from_yaml
 from crawler.interfaces import INewsSource, SourceType, ContentType, SourceConfig
 
+# Import HTML scraping extensions (Open-Closed Principle)
+from crawler.extensions.html_extensions import register_html_extensions
+
 # Import existing utilities (unchanged)
 from crawler.utils.dependency_checker import check_dependencies
 from crawler.utils.memory_monitor import log_memory_usage
