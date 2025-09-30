@@ -20,6 +20,13 @@ from .rss_template import (
     create_rss_source
 )
 
+from .html_template import HTMLTemplate
+from .html_specialized import (
+    KabutanTemplate,
+    PoundSterlingLiveTemplate, 
+    create_html_template
+)
+
 __all__ = [
     # Base template classes
     'BaseNewsSourceTemplate',
@@ -33,5 +40,11 @@ __all__ = [
     'RSSNewsSourceTemplate',
     'RSSArticleDiscovery',
     'RSSContentExtractor',
-    'create_rss_source'
+    'create_rss_source',
+    
+    # HTML template classes
+    'HTMLTemplate',
+    'KabutanTemplate',
+    'PoundSterlingLiveTemplate',
+    'create_html_template'
 ]
