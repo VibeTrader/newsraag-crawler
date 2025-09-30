@@ -385,16 +385,14 @@ class BaseContentStorage(IContentStorage):
             # Create output model (reuse existing structure)
             from models.output import OutputModel
             output = OutputModel(
-                id=metadata.article_id,
-                timestamp=metadata.published_date.isoformat(),
                 title=metadata.title,
+                publishDate=metadata.published_date,  # Required field - use datetime object
+                content=content,  # Required field - use the extracted content
                 url=metadata.url,
-                cleaned_content=content,
-                raw_content=content,  # For now, same as cleaned
                 source=metadata.source_name,
                 author=metadata.author,
                 category=metadata.category,
-                tags=metadata.tags or []
+                article_id=metadata.article_id  # Optional field - maps correctly
             )
             
             # Store in vector database
