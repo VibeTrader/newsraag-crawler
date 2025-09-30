@@ -342,10 +342,13 @@ class BaseDuplicateChecker(IDuplicateChecker):
         """Check if article is duplicate using existing duplicate detector."""
         try:
             if self.duplicate_detector:
-                return self.duplicate_detector.is_duplicate_title(
-                    article_meta.title,
-                    article_meta.source_name
-                )
+                # Create article_data dict for the is_duplicate method
+                article_data = {
+                    'url': article_meta.url,
+                    'title': article_meta.title
+                }
+                is_dup, _ = self.duplicate_detector.is_duplicate(article_data)
+                return is_dup
             else:
                 # Basic duplicate check - assume not duplicate
                 return False
