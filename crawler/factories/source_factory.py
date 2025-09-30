@@ -9,41 +9,7 @@ from crawler.interfaces.news_source_interface import (
     INewsSource, SourceConfig, SourceType, NewsSourceError
 )
 from crawler.templates.rss_template import RSSNewsSourceTemplate
-from crawler.templates.html_template import HTMLTemplate
-from crawler.templates.html_specialized import create_html_template
-
-
-class HTMLNewsSourceTemplate(INewsSource):
-    """Adapter to make HTMLTemplate compatible with INewsSource interface."""
-    
-    def __init__(self, config: SourceConfig):
-        self.config = config
-        # Convert SourceConfig to dict format expected by HTMLTemplate
-        template_config = {
-            'url': config.url,
-            'selectors': getattr(config, 'selectors', {}),
-            'translate': getattr(config, 'requires_translation', False),
-            'rate_limit': config.rate_limit_seconds,
-            'max_articles': config.max_articles_per_run
-        }
-        self.template = create_html_template(config.name, template_config)
-    
-    async def fetch_articles(self, session, max_articles: Optional[int] = None):
-        """Fetch articles using HTML template."""
-        return await self.template.fetch_articles(session, max_articles or self.config.max_articles_per_run)
-    
-    async def process_article(self, article_meta, session):
-        """Process individual article using template."""
-        return await self.template.process_article(article_meta, session)
-    
-    def get_source_name(self) -> str:
-        return self.config.name
-    
-    def get_content_type(self):
-        return self.config.content_type
-    
-    def get_rate_limit(self) -> float:
-        return self.config.rate_limit_seconds
+from crawler.templates.universal_template import UniversalTemplate
 
 
 class SourceFactory:
@@ -55,10 +21,11 @@ class SourceFactory:
     # Registry of template classes for each source type
     _TEMPLATE_REGISTRY: Dict[SourceType, Type[INewsSource]] = {
         SourceType.RSS: RSSNewsSourceTemplate,
-        SourceType.HTML_SCRAPING: HTMLNewsSourceTemplate,
-        # Future templates will be added here:
-        # SourceType.YOUTUBE: YouTubeTemplate,
-        # SourceType.API: APITemplate,
+        SourceType.HTML_SCRAPING: lambda config: UniversalTemplate(config),
+        SourceType.YOUTUBE: lambda config: UniversalTemplate(config),
+        SourceType.TWITTER: lambda config: UniversalTemplate(config), 
+        SourceType.REDDIT: lambda config: UniversalTemplate(config),
+        # Add new source types here - Open-Closed Principle!
     }
     
     # Custom adapters are deprecated - templates handle everything via YAML
