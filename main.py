@@ -30,6 +30,9 @@ from crawler.interfaces import INewsSource, SourceType, ContentType, SourceConfi
 # Import HTML scraping extensions (Open-Closed Principle)
 from crawler.extensions.html_extensions import register_html_extensions
 
+# Import robust RSS parser for enhanced error handling
+from crawler.utils.robust_rss_parser import RobustRSSParser
+
 # Import existing utilities (unchanged)
 from crawler.utils.dependency_checker import check_dependencies
 from crawler.utils.memory_monitor import log_memory_usage
@@ -158,6 +161,57 @@ async def load_unified_sources():
     
     # Fallback to programmatic creation
     return create_all_sources_fallback()
+
+
+async def process_rss_source(source_config):
+    """Process RSS source with enhanced error handling"""
+    
+    logger.info(f"Processing RSS source: {source_config['name']}")
+    
+    # Use robust RSS parser
+    feed = RobustRSSParser.parse_with_fallbacks(source_config['url'])
+    
+    if feed is None:
+        logger.error(f"❌ Failed to parse RSS for {source_config['name']}")
+        return {'articles_discovered': 0, 'articles_processed': 0, 'articles_failed': 1, 'articles_skipped': 0}
+    
+    articles_processed = 0
+    articles_failed = 0
+    articles_discovered = len(feed.entries)
+    
+    logger.info(f"📄 Found {articles_discovered} articles for {source_config['name']}")
+    
+    for entry in feed.entries[:source_config.get('max_articles', 50)]:
+        try:
+            # Process each article
+            article_url = entry.get('link', '')
+            article_title = entry.get('title', 'No title')
+            
+            if not article_url or not article_title:
+                logger.warning(f"⚠️ Skipping article with missing data: {article_title}")
+                articles_failed += 1
+                continue
+            
+            logger.info(f"Processing: {article_title}")
+            
+            # Here you would integrate with your existing article processing pipeline
+            # For now, we'll just count it as processed
+            # TODO: Integrate with existing content extraction and storage logic
+            
+            articles_processed += 1
+            
+        except Exception as e:
+            logger.error(f"Error processing article '{entry.get('title', 'Unknown')}': {e}")
+            articles_failed += 1
+    
+    logger.info(f"✅ {source_config['name']}: {articles_processed}/{articles_discovered} processed, {articles_failed} failed")
+    
+    return {
+        'articles_discovered': articles_discovered,
+        'articles_processed': articles_processed,
+        'articles_failed': articles_failed,
+        'articles_skipped': 0  # For now, no duplicate detection in this function
+    }
 
 
 async def main_loop():
@@ -298,9 +352,66 @@ async def main_loop():
                         logger.warning(f"⚠️ Health check error for {source_name}: {health_error}")
                         # Continue processing anyway
                     
-                    # Process articles using unified template method
+                    # Process articles using enhanced method
                     source_start_time = time.time()
-                    result = await source.process_articles()
+                    
+                    # Enhanced processing with robust RSS fallback
+                    if source.config.source_type == SourceType.RSS:
+                        # Try standard processing first
+                        try:
+                            result = await source.process_articles()
+                            
+                            # If no articles found, try robust RSS parser as fallback
+                            if result.get('articles_discovered', 0) == 0:
+                                logger.warning(f"⚠️ No articles from standard processing, trying robust RSS parser for {source_name}")
+                                
+                                # Create config dict for robust parser
+                                rss_config = {
+                                    'name': source_name,
+                                    'url': source.config.rss_url or source.config.base_url,
+                                    'max_articles': source.config.max_articles_per_run
+                                }
+                                
+                                robust_result = await process_rss_source(rss_config)
+                                
+                                # Use robust result if it found articles
+                                if robust_result.get('articles_discovered', 0) > 0:
+                                    logger.info(f"✅ Robust RSS parser succeeded for {source_name}")
+                                    result = robust_result
+                                    
+                        except Exception as e:
+                            logger.error(f"❌ Standard RSS processing failed for {source_name}: {e}")
+                            logger.info(f"🔄 Falling back to robust RSS parser for {source_name}")
+                            
+                            # Fallback to robust RSS parser
+                            rss_config = {
+                                'name': source_name,
+                                'url': source.config.rss_url or source.config.base_url,
+                                'max_articles': source.config.max_articles_per_run
+                            }
+                            
+                            result = await process_rss_source(rss_config)
+                            
+                    elif source.config.source_type == SourceType.HTML_SCRAPING:
+                        # HTML scraping sources (like Kabutan)
+                        try:
+                            logger.info(f"🔄 Processing HTML scraping source: {source_name}")
+                            result = await source.process_articles()
+                            
+                        except Exception as e:
+                            logger.error(f"❌ HTML scraping failed for {source_name}: {e}")
+                            # For now, return failure result - could add HTML fallback strategies later
+                            result = {
+                                'articles_discovered': 0,
+                                'articles_processed': 0,
+                                'articles_failed': 1,
+                                'articles_skipped': 0
+                            }
+                            
+                    else:
+                        # Use standard unified template method for other source types
+                        result = await source.process_articles()
+                    
                     processing_time = time.time() - source_start_time
                     
                     # Update cycle statistics

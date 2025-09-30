@@ -14,12 +14,12 @@ import re
 import logging
 from dateutil import parser as date_parser
 
-from .base_template import BaseTemplate
+from .base_template import BaseNewsSourceTemplate
 from ..interfaces import ArticleMetadata, SourceType, ContentType
 from ..utils.rate_limiter import RateLimiter
 
 
-class HTMLTemplate(BaseTemplate):
+class HTMLTemplate(BaseNewsSourceTemplate):
     """Template for HTML scraping-based news sources."""
     
     def __init__(self, source_name: str, config: Dict[str, Any]):

@@ -14,41 +14,41 @@ sources:
     max_articles: 50
     content_type: forex
     
+  # FIXED: ForexLive with enhanced error handling
   - name: forexlive
     type: rss
     url: https://www.forexlive.com/feed/
-    rate_limit: 1
+    rate_limit: 3  # Increased for stability
     max_articles: 50
     content_type: forex
     
+  # FIXED: PoundSterlingLive with potential RSS endpoints
+  - name: poundsterlinglive
+    type: rss
+    url: https://www.poundsterlinglive.com/feed
+    rate_limit: 2
+    max_articles: 30
+    content_type: forex
+
+  # RESTORED: Kabutan as HTML scraping (properly configured)
+  - name: kabutan
+    type: html_scraping
+    url: https://kabutan.jp/news/marketnews/
+    selectors:
+      title: ".news-title, .ttl, h2, h3"
+      content: ".news-content, .article-body, .lead"  
+      link: "a[href*='/news/']"
+      date: ".date, .time, .published"
+    translate: true
+    rate_limit: 3
+    max_articles: 20
+    content_type: stocks
+
+  # Optional: Add working alternatives
   - name: bloomberg_forex
     type: rss
     url: https://feeds.bloomberg.com/markets/news.rss
     rate_limit: 2
     max_articles: 40
     content_type: forex
-
-  # HTML Sources - For future HTML template implementation
-  # Currently using fallback behavior until HTML template is created
-  - name: kabutan
-    type: html_scraping
-    url: https://kabutan.jp/news/marketnews/
-    selectors:
-      title: "h1, .title, .headline"
-      content: ".article-body, .content, .post-content"
-      author: ".author, .by-author"
-    translate: true
-    rate_limit: 2
-    max_articles: 30
-    content_type: stocks
-    
-  - name: poundsterlinglive
-    type: html_scraping
-    url: https://www.poundsterlinglive.com/markets
-    selectors:
-      title: "h1, .title, .headline"
-      content: ".content, .article-content, .post-content"
-      author: ".author, .by-author"
-    rate_limit: 2
-    max_articles: 30
-    content_type: forex
+  
