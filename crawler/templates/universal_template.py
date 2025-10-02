@@ -23,7 +23,7 @@ class UniversalTemplate(BaseNewsSourceTemplate):
         """Create discovery service based on source type."""
         config_dict = {
             'name': self.config.name,
-            'url': self.config.url,
+            'url': self.config.base_url or self.config.rss_url,
             'selectors': getattr(self.config, 'selectors', {}),
         }
         return create_article_discovery(self.config.source_type.value, config_dict)
@@ -32,7 +32,7 @@ class UniversalTemplate(BaseNewsSourceTemplate):
         """Create extractor service based on source type."""
         config_dict = {
             'name': self.config.name,
-            'url': self.config.url,
+            'url': self.config.base_url or self.config.rss_url,
             'selectors': getattr(self.config, 'selectors', {}),
         }
         return create_content_extractor(self.config.source_type.value, config_dict)
@@ -40,7 +40,7 @@ class UniversalTemplate(BaseNewsSourceTemplate):
     def _create_processor_service(self) -> IContentProcessor:
         """Create processor service - reuse existing implementation."""
         from ..templates.base_template import BaseContentProcessor
-        return BaseContentProcessor()
+        return BaseContentProcessor(self.config)
     
     def _create_duplicate_checker(self) -> IDuplicateChecker:
         """Create duplicate checker - reuse existing implementation."""

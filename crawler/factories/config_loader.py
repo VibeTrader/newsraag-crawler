@@ -109,6 +109,7 @@ class EnhancedConfigLoader:
         type_mapping = {
             'rss': SourceType.RSS,
             'html': SourceType.HTML_SCRAPING,
+            'html_scraping': SourceType.HTML_SCRAPING,  # Support both formats
             'api': SourceType.API,
             'youtube': SourceType.YOUTUBE,
         }
