@@ -10,6 +10,7 @@ from crawler.interfaces.news_source_interface import (
 )
 from crawler.templates.rss_template import RSSNewsSourceTemplate
 from crawler.templates.universal_template import UniversalTemplate
+from crawler.templates.hierarchical_template import HierarchicalTemplate
 
 
 class SourceFactory:
@@ -20,8 +21,8 @@ class SourceFactory:
     
     # Registry of template classes for each source type
     _TEMPLATE_REGISTRY: Dict[SourceType, Type[INewsSource]] = {
-        SourceType.RSS: RSSNewsSourceTemplate,
-        SourceType.HTML_SCRAPING: lambda config: UniversalTemplate(config),
+        SourceType.RSS: lambda config: HierarchicalTemplate(config),  # Use hierarchical for RSS
+        SourceType.HTML_SCRAPING: lambda config: HierarchicalTemplate(config),  # Use hierarchical for HTML scraping
         SourceType.YOUTUBE: lambda config: UniversalTemplate(config),
         SourceType.TWITTER: lambda config: UniversalTemplate(config), 
         SourceType.REDDIT: lambda config: UniversalTemplate(config),

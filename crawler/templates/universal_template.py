@@ -45,12 +45,12 @@ class UniversalTemplate(BaseNewsSourceTemplate):
     def _create_duplicate_checker(self) -> IDuplicateChecker:
         """Create duplicate checker - reuse existing implementation."""
         from ..templates.base_template import BaseDuplicateChecker
-        return BaseDuplicateChecker()
+        return BaseDuplicateChecker(self.config)  # FIX: Pass required config parameter  # FIX: Pass required config parameter
     
     def _create_storage_service(self) -> IContentStorage:
         """Create storage service - reuse existing implementation."""
         from ..templates.base_template import BaseContentStorage
-        return BaseContentStorage()
+        return BaseContentStorage(self.config)  # FIX: Pass required config parameter
 
 
 # Factory function for the source factory

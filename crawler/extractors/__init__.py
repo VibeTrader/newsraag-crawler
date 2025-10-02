@@ -1,44 +1,9 @@
 """
-Extractors package - Open-Closed Principle implementation.
-Easy to extend with new source types without modifying existing code.
+Content extractors for different extraction methods.
 """
 
-from .article_discovery import (
-    create_article_discovery,
-    DISCOVERY_REGISTRY,
-    RSSArticleDiscovery,
-    HTMLArticleDiscovery,
-    YouTubeArticleDiscovery,
-    TwitterArticleDiscovery,
-    RedditArticleDiscovery
-)
+from .crawl4ai_extractor import Crawl4AIExtractor
+from .beautifulsoup_extractor import BeautifulSoupExtractor
+from .rss_extractor import RSSExtractor
 
-from .content_extractors import (
-    create_content_extractor,
-    EXTRACTOR_REGISTRY,
-    HTMLContentExtractor,
-    YouTubeContentExtractor,
-    TwitterContentExtractor,
-    RedditContentExtractor
-)
-
-__all__ = [
-    # Factory functions
-    'create_article_discovery',
-    'create_content_extractor',
-    
-    # Registries for extension
-    'DISCOVERY_REGISTRY',
-    'EXTRACTOR_REGISTRY',
-    
-    # Individual extractors
-    'RSSArticleDiscovery',
-    'HTMLArticleDiscovery', 
-    'HTMLContentExtractor',
-    'YouTubeArticleDiscovery',
-    'YouTubeContentExtractor',
-    'TwitterArticleDiscovery', 
-    'TwitterContentExtractor',
-    'RedditArticleDiscovery',
-    'RedditContentExtractor',
-]
+__all__ = ['Crawl4AIExtractor', 'BeautifulSoupExtractor', 'RSSExtractor']

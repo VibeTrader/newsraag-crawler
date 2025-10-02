@@ -1,38 +1,38 @@
 sources:
-  # RSS Sources - Handled by RSS Template
+  # RSS Sources with Hierarchical Extraction
   - name: babypips
-    type: rss
+    type: rss  # Will use hierarchical template: Crawl4AI -> BeautifulSoup -> RSS
     url: https://www.babypips.com/feed.rss
     rate_limit: 1
     max_articles: 50
     content_type: forex
     
   - name: fxstreet
-    type: rss
+    type: rss  # Will use hierarchical template: Crawl4AI -> BeautifulSoup -> RSS
     url: https://www.fxstreet.com/rss/news
     rate_limit: 1
     max_articles: 50
     content_type: forex
     
-  # FIXED: ForexLive with enhanced error handling
+  # FIXED: ForexLive with enhanced error handling and hierarchical fallback
   - name: forexlive
-    type: rss
+    type: rss  # Will use hierarchical template: Crawl4AI -> BeautifulSoup -> RSS
     url: https://www.forexlive.com/feed/
     rate_limit: 3  # Increased for stability
     max_articles: 50
     content_type: forex
     
-  # FIXED: PoundSterlingLive with potential RSS endpoints
+  # FIXED: PoundSterlingLive with hierarchical fallback
   - name: poundsterlinglive
-    type: rss
+    type: rss  # Will use hierarchical template: Crawl4AI -> BeautifulSoup -> RSS
     url: https://www.poundsterlinglive.com/feed
     rate_limit: 2
     max_articles: 30
     content_type: forex
 
-  # RESTORED: Kabutan as HTML scraping (properly configured)
+  # RESTORED: Kabutan as HTML scraping with hierarchical fallback
   - name: kabutan
-    type: html_scraping
+    type: html_scraping  # Will use hierarchical template: Crawl4AI -> BeautifulSoup -> RSS discovery
     url: https://kabutan.jp/news/marketnews/
     selectors:
       title: ".news-title, .ttl, h2, h3"
@@ -44,11 +44,10 @@ sources:
     max_articles: 20
     content_type: stocks
 
-  # Optional: Add working alternatives
+  # Working alternatives with hierarchical extraction
   - name: bloomberg_forex
-    type: rss
+    type: rss  # Will use hierarchical template: Crawl4AI -> BeautifulSoup -> RSS
     url: https://feeds.bloomberg.com/markets/news.rss
     rate_limit: 2
     max_articles: 40
     content_type: forex
-  
