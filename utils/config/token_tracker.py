@@ -135,7 +135,8 @@ class TokenUsageTracker:
         if not self.track_usage:
             return {'tracking_enabled': False, 'message': 'Token usage tracking is disabled'}
             
-        daily_percent = (self.usage_data['daily_tokens'] / self.daily_limit) * 100        monthly_percent = (self.usage_data['monthly_tokens'] / self.monthly_limit) * 100
+        daily_percent = (self.usage_data['daily_tokens'] / self.daily_limit) * 100
+        monthly_percent = (self.usage_data['monthly_tokens'] / self.monthly_limit) * 100
         
         return {
             'tracking_enabled': True,

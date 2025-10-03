@@ -240,7 +240,7 @@ class BaseContentExtractor(IContentExtractor, ABC):
     @abstractmethod
     async def extract_content(self, article_meta: ArticleMetadata) -> ProcessingResult:
         """Extract content - must be implemented by subclasses."""
-        pass
+        raise NotImplementedError("Subclasses must implement extract_content method")
 
 
 class BaseContentProcessor(IContentProcessor):
@@ -310,19 +310,8 @@ class BaseContentProcessor(IContentProcessor):
         if not self.llm_cleaner:
             raise ValueError("LLM cleaner not available")
         
-        # FIXED: Add the missing URL parameter
-        result = await self.llm_cleaner.clean_content(content, metadata.source_name, metadata.url)
-        
-        # Handle tuple return (content, metadata) or direct string  
-        if isinstance(result, tuple) and len(result) >= 2:
-            return result[0]  # Return just the content
-        elif isinstance(result, str):
-            return result
-        else:
-            return content  # Fallback to original content
-            
-            # Use existing LLM cleaner
-            return await self.llm_cleaner.clean_content(content, metadata.source_name)
+        # Use existing LLM cleaner
+        return await self.llm_cleaner.clean_content(content, metadata.source_name)
     
     def _basic_content_cleaning(self, content: str) -> str:
         """Basic content cleaning without LLM."""

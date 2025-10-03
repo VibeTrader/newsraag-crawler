@@ -36,7 +36,8 @@ class EnvironmentValidator:
             missing = [var for var in base_vars if not os.getenv(var)]
             logger.error(f"Missing required Azure OpenAI configuration: {', '.join(missing)}")
         
-        # Validate LLM cleaning configuration        cleaning_vars = ["AZURE_OPENAI_DEPLOYMENT"]
+        # Validate LLM cleaning configuration
+        cleaning_vars = ["AZURE_OPENAI_DEPLOYMENT"]
         cleaning_valid = base_valid and all(os.getenv(var) for var in cleaning_vars)
         results["llm_cleaning"] = cleaning_valid
         

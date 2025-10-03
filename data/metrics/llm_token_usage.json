@@ -1,0 +1,21 @@
+{
+  "daily_tokens": 98610,
+  "monthly_tokens": 98610,
+  "total_tokens": 98610,
+  "daily_date": "2025-10-03",
+  "monthly_date": "2025-10",
+  "request_count": 46,
+  "last_updated": "2025-10-03T18:15:41.792516",
+  "models": {
+    "gpt-4.1-stocks": {
+      "tokens": 98610,
+      "requests": 46,
+      "types": {
+        "content_cleaning": {
+          "tokens": 98610,
+          "requests": 46
+        }
+      }
+    }
+  }
+}

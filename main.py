@@ -56,7 +56,7 @@ def create_all_sources_fallback():
     
     try:
         source_configs = [
-            # BabyPips (RSS)
+            # BabyPips (RSS) - Increased timeout for reliability
             SourceConfig(
                 name="babypips",
                 source_type=SourceType.RSS,
@@ -64,59 +64,59 @@ def create_all_sources_fallback():
                 base_url="https://www.babypips.com",
                 rss_url="https://www.babypips.com/feed.rss",
                 rate_limit_seconds=2,
-                max_articles_per_run=50,
-                timeout_seconds=30,
+                max_articles_per_run=40,  # Reduced from 50
+                timeout_seconds=90,  # Increased from 30 for reliability
                 custom_processing=True
             ),
             
-            # FXStreet (RSS)
+            # FXStreet (RSS) - Increased timeout for heavy site
             SourceConfig(
                 name="fxstreet",
                 source_type=SourceType.RSS,
                 content_type=ContentType.FOREX,
                 base_url="https://www.fxstreet.com",
                 rss_url="https://www.fxstreet.com/rss/news",
-                rate_limit_seconds=1,
-                max_articles_per_run=50,
-                timeout_seconds=30,
+                rate_limit_seconds=2,  # Increased from 1 to be more respectful
+                max_articles_per_run=30,  # Reduced from 50 to avoid overloading
+                timeout_seconds=120,  # Increased from 30 to handle heavy loading
                 custom_processing=True
             ),
             
-            # ForexLive (RSS)
+            # ForexLive (RSS) - Increased timeout for reliability
             SourceConfig(
                 name="forexlive",
                 source_type=SourceType.RSS,
                 content_type=ContentType.FOREX,
                 base_url="https://www.forexlive.com",
                 rss_url="https://www.forexlive.com/feed/",
-                rate_limit_seconds=1,
-                max_articles_per_run=50,
-                timeout_seconds=30,
+                rate_limit_seconds=2,  # Increased for stability
+                max_articles_per_run=40,  # Reduced from 50
+                timeout_seconds=90,  # Increased from 30 for reliability
                 custom_processing=True
             ),
             
-            # Kabutan (HTML with translation)
+            # Kabutan (HTML with translation) - Heavy timeout for Japanese site
             SourceConfig(
                 name="kabutan",
                 source_type=SourceType.HTML_SCRAPING,
                 content_type=ContentType.STOCKS,
                 base_url="https://kabutan.jp/news/marketnews/",
-                rate_limit_seconds=2,
-                max_articles_per_run=30,
-                timeout_seconds=45,
+                rate_limit_seconds=3,  # Increased for international site
+                max_articles_per_run=25,  # Reduced from 30
+                timeout_seconds=150,  # Increased for Japanese site + translation
                 requires_translation=True,
                 custom_processing=True
             ),
             
-            # PoundSterlingLive (HTML)
+            # PoundSterlingLive (HTML) - Heavy timeout for complex site
             SourceConfig(
                 name="poundsterlinglive",
                 source_type=SourceType.HTML_SCRAPING,
                 content_type=ContentType.FOREX,
                 base_url="https://www.poundsterlinglive.com/markets",
-                rate_limit_seconds=2,
-                max_articles_per_run=40,
-                timeout_seconds=30,
+                rate_limit_seconds=3,  # Increased for stability
+                max_articles_per_run=30,  # Reduced from 40
+                timeout_seconds=120,  # Increased from 30 for reliability
                 custom_processing=True
             )
         ]
@@ -169,25 +169,26 @@ async def process_rss_source(source_config):
     logger.info(f"Processing RSS source: {source_config['name']}")
     
     # Use robust RSS parser
-    feed = RobustRSSParser.parse_with_fallbacks(source_config['url'])
+    parser = RobustRSSParser(timeout=30)
+    articles_list, errors = await parser.parse_rss_feed(source_config['url'], source_config.get('max_articles', 50))
     
-    if feed is None:
-        logger.error(f"❌ Failed to parse RSS for {source_config['name']}")
+    if not articles_list:
+        logger.error(f"❌ Failed to parse RSS for {source_config['name']}: {errors}")
         return {'articles_discovered': 0, 'articles_processed': 0, 'articles_failed': 1, 'articles_skipped': 0}
     
     articles_processed = 0
     articles_failed = 0
-    articles_discovered = len(feed.entries)
+    articles_discovered = len(articles_list)
     
     logger.info(f"📄 Found {articles_discovered} articles for {source_config['name']}")
     
-    for entry in feed.entries[:source_config.get('max_articles', 50)]:
+    for article_data in articles_list[:source_config.get('max_articles', 50)]:
         try:
-            # Process each article
-            article_url = entry.get('link', '')
-            article_title = entry.get('title', 'No title')
+            # Process each article - RSS parser returns 'url' not 'link'
+            article_url = article_data.get('url', '') or article_data.get('link', '')
+            article_title = article_data.get('title', 'No title')
             
-            if not article_url or not article_title:
+            if not article_url or not article_title or article_title == 'No title':
                 logger.warning(f"⚠️ Skipping article with missing data: {article_title}")
                 articles_failed += 1
                 continue
@@ -201,7 +202,7 @@ async def process_rss_source(source_config):
             articles_processed += 1
             
         except Exception as e:
-            logger.error(f"Error processing article '{entry.get('title', 'Unknown')}': {e}")
+            logger.error(f"Error processing article '{article_data.get('title', 'Unknown')}': {e}")
             articles_failed += 1
     
     logger.info(f"✅ {source_config['name']}: {articles_processed}/{articles_discovered} processed, {articles_failed} failed")
