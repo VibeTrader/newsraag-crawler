@@ -1,19 +1,19 @@
 {
-  "daily_tokens": 98610,
-  "monthly_tokens": 98610,
-  "total_tokens": 98610,
+  "daily_tokens": 195576,
+  "monthly_tokens": 195576,
+  "total_tokens": 195576,
   "daily_date": "2025-10-03",
   "monthly_date": "2025-10",
-  "request_count": 46,
-  "last_updated": "2025-10-03T18:15:41.792516",
+  "request_count": 85,
+  "last_updated": "2025-10-03T20:03:18.326222",
   "models": {
     "gpt-4.1-stocks": {
-      "tokens": 98610,
-      "requests": 46,
+      "tokens": 195576,
+      "requests": 85,
       "types": {
         "content_cleaning": {
-          "tokens": 98610,
-          "requests": 46
+          "tokens": 195576,
+          "requests": 85
         }
       }
     }

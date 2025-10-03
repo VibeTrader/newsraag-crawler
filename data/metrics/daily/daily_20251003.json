@@ -1,0 +1,13 @@
+{
+  "app_start_time": "2025-10-03T19:21:11.905045",
+  "cycles_completed": 1,
+  "cycles_failed": 0,
+  "total_articles_discovered": 0,
+  "total_articles_processed": 0,
+  "total_duplicates_detected": 0,
+  "total_extraction_failures": 0,
+  "last_deletion_time": null,
+  "last_deletion_count": 0,
+  "memory_usage_mb": 249.29,
+  "timestamp": "2025-10-03T20:07:10.606034"
+}

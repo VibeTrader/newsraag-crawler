@@ -12,10 +12,13 @@ sources:
   - name: fxstreet
     type: rss
     url: https://www.fxstreet.com/rss/news
-    rate_limit: 2
-    max_articles: 30
-    timeout: 120
+    rate_limit: 5  # Increased from 2 due to browser issues
+    max_articles: 10  # Reduced from 30 to prevent browser overload
+    timeout: 180  # Increased from 120 for heavy pages
     content_type: forex
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     
   - name: marketwatch
     type: rss
@@ -38,22 +41,6 @@ sources:
     max_articles: 25
     timeout: 150
     content_type: stocks
-
-  - name: yahoo_finance
-    type: rss
-    url: https://feeds.finance.yahoo.com/rss/2.0/headline
-    rate_limit: 2
-    max_articles: 30
-    timeout: 75
-    content_type: stocks
-
-  - name: reuters_business  
-    type: rss
-    url: https://feeds.reuters.com/reuters/businessNews
-    rate_limit: 3
-    max_articles: 25
-    timeout: 120
-    content_type: economics
 
   # ===== NEW MAJOR NEWS SOURCES =====
 
@@ -95,43 +82,43 @@ sources:
     timeout: 90
     content_type: economics
 
-  # USA TODAY - Major US news
-  - name: usatoday
-    type: rss
-    url: https://rssfeeds.usatoday.com/usatoday-NewsTopStories
-    rate_limit: 2
-    max_articles: 30
-    timeout: 90
-    content_type: news
+  # # USA TODAY - Major US news
+  # - name: usatoday
+  #   type: rss
+  #   url: https://rssfeeds.usatoday.com/usatoday-NewsTopStories
+  #   rate_limit: 2
+  #   max_articles: 30
+  #   timeout: 90
+  #   content_type: news
 
-  # USA TODAY Money - Financial focus
-  - name: usatoday_money
-    type: rss
-    url: https://rssfeeds.usatoday.com/usatoday-money
-    rate_limit: 2
-    max_articles: 25
-    timeout: 90
-    content_type: economics
+  # # USA TODAY Money - Financial focus
+  # - name: usatoday_money
+  #   type: rss
+  #   url: https://rssfeeds.usatoday.com/usatoday-money
+  #   rate_limit: 2
+  #   max_articles: 25
+  #   timeout: 90
+  #   content_type: economics
 
-  # CNBC - Premium financial news (may have anti-bot protection)
-  - name: cnbc
-    type: rss
-    url: https://www.cnbc.com/id/100003114/device/rss/rss.html
-    rate_limit: 3  # More respectful for premium site
-    max_articles: 20  # Limited due to high-value content
-    timeout: 120  # Longer timeout for heavy financial site
-    content_type: economics
-    headers:
-      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  # # CNBC - Premium financial news (may have anti-bot protection)
+  # - name: cnbc
+  #   type: rss
+  #   url: https://www.cnbc.com/id/100003114/device/rss/rss.html
+  #   rate_limit: 3  # More respectful for premium site
+  #   max_articles: 20  # Limited due to high-value content
+  #   timeout: 120  # Longer timeout for heavy financial site
+  #   content_type: economics
+  #   headers:
+  #     User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
-  # CNBC World Markets
-  - name: cnbc_world
-    type: rss
-    url: https://www.cnbc.com/id/100727362/device/rss/rss.html
-    rate_limit: 3
-    max_articles: 20
-    timeout: 120
-    content_type: economics
+  # # CNBC World Markets
+  # - name: cnbc_world
+  #   type: rss
+  #   url: https://www.cnbc.com/id/100727362/device/rss/rss.html
+  #   rate_limit: 3
+  #   max_articles: 20
+  #   timeout: 120
+  #   content_type: economics
 
   # ===== SPECIALIZED FINANCIAL SOURCES =====
 
@@ -149,83 +136,6 @@ sources:
       link: "a[href*='/news/']"
       date: ".news__date, .calendar__event-time"
 
-  # Forex Factory RSS (if available)
-  - name: forexfactory_rss
-    type: rss
-    url: https://www.forexfactory.com/rss.php
-    rate_limit: 4
-    max_articles: 20
-    timeout: 120
-    content_type: forex
-
-  # TradingEconomics - Economic data + calendar
-  - name: tradingeconomics
-    type: rss
-    url: https://tradingeconomics.com/rss/news
-    rate_limit: 3
-    max_articles: 25
-    timeout: 120
-    content_type: economics
-
-  # Alternative TradingEconomics feeds
-  - name: tradingeconomics_indicators
-    type: rss
-    url: https://tradingeconomics.com/rss/indicators
-    rate_limit: 3
-    max_articles: 20
-    timeout: 120
-    content_type: economics
-
-  # Investing.com - Multiple forex feeds
-  - name: investing_forex
-    type: rss
-    url: https://www.investing.com/rss/news_14.rss  # Forex news
-    rate_limit: 3  # Respectful for high-traffic site
-    max_articles: 25
-    timeout: 120
-    content_type: forex
-
-  - name: investing_general
-    type: rss
-    url: https://www.investing.com/rss/news.rss  # General financial news
-    rate_limit: 3
-    max_articles: 30
-    timeout: 120
-    content_type: economics
-
-  - name: investing_analysis
-    type: rss
-    url: https://www.investing.com/rss/news_1.rss  # Market analysis
-    rate_limit: 3
-    max_articles: 20
-    timeout: 120
-    content_type: forex
-
-  # DailyFX - Market news & analysis
-  - name: dailyfx
-    type: rss
-    url: https://www.dailyfx.com/rss
-    rate_limit: 3
-    max_articles: 25
-    timeout: 120  # Financial site, may be heavy
-    content_type: forex
-
-  # DailyFX specific feeds
-  - name: dailyfx_analysis
-    type: html_scraping  # In case RSS is limited
-    url: https://www.dailyfx.com/market-news
-    rate_limit: 3
-    max_articles: 20
-    timeout: 150
-    content_type: forex
-    selectors:
-      title: ".dfx-articleTeaser__headline, h1, h2"
-      content: ".dfx-articleTeaser__excerpt, .article-content"
-      link: "a[href*='/news/'], a[href*='/market-news/']"
-      date: ".dfx-articleTeaser__timestamp, .article-date"
-
-  # ===== BONUS FINANCIAL SOURCES =====
-
   # Bloomberg Markets (if accessible)
   - name: bloomberg_markets
     type: rss
@@ -236,94 +146,3 @@ sources:
     content_type: economics
     headers:
       User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-
-  # Financial Times (if accessible)
-  - name: ft_markets
-    type: rss
-    url: https://www.ft.com/rss/world
-    rate_limit: 4
-    max_articles: 15
-    timeout: 150
-    content_type: economics
-
-  # Economic Policy Institute
-  - name: epi
-    type: rss
-    url: https://www.epi.org/feeds/all/
-    rate_limit: 2
-    max_articles: 20
-    timeout: 75
-    content_type: economics
-
-  # Federal Reserve Economic Data (FRED)
-  - name: fred_blog
-    type: rss
-    url: https://fredblog.stlouisfed.org/feed/
-    rate_limit: 2
-    max_articles: 15
-    timeout: 60
-    content_type: economics
-
-  # ===== CRYPTOCURRENCY SOURCES (BONUS) =====
-
-  - name: coindesk
-    type: rss
-    url: https://www.coindesk.com/arc/outboundfeeds/rss/
-    rate_limit: 2
-    max_articles: 25
-    timeout: 90
-    content_type: crypto
-
-  - name: cointelegraph
-    type: rss
-    url: https://cointelegraph.com/rss
-    rate_limit: 2
-    max_articles: 25
-    timeout: 90
-    content_type: crypto
-
-  # ===== DISABLED SOURCES (Enable as needed) =====
-  
-  # - name: forexlive  # May have RSS issues
-  #   type: rss
-  #   url: https://www.forexlive.com/feed/all/
-  #   rate_limit: 3
-  #   max_articles: 30
-  #   timeout: 90
-  #   content_type: forex
-    
-  # - name: poundsterlinglive  # HTML scraping alternative
-  #   type: html_scraping
-  #   url: https://www.poundsterlinglive.com/markets
-  #   rate_limit: 3
-  #   max_articles: 30
-  #   timeout: 120
-  #   content_type: forex
-
-# ===== CONFIGURATION NOTES =====
-#
-# Content Types:
-# - forex: Currency/FX trading news
-# - economics: Economic indicators, policy, macro news  
-# - stocks: Stock market, company news
-# - news: General news with economic impact
-# - crypto: Cryptocurrency news
-#
-# Timeout Guidelines:
-# - Light sites (RSS only): 60-90s
-# - Medium sites (some JS): 90-120s  
-# - Heavy sites (lots of JS/ads): 120-180s
-# - International sites: +30s
-# - Anti-bot protection: +60s
-#
-# Rate Limit Guidelines:
-# - Fast/simple sites: 1-2s
-# - Standard news sites: 2-3s
-# - Premium/financial sites: 3-5s
-# - Trading/specialized sites: 4-5s
-#
-# Max Articles Guidelines:
-# - High-frequency sources: 40-50
-# - Standard sources: 25-35  
-# - Premium/complex sources: 15-25
-# - Specialized/trading sources: 10-20

@@ -12,6 +12,82 @@ from crawl4ai.chunking_strategy import RegexChunking
 from crawler.interfaces import ArticleMetadata, SourceConfig
 from datetime import datetime
 import hashlib
+import time
+import atexit
+
+# SINGLE BROWSER POOL - ONLY ONE CHROME PROCESS FOR ALL SOURCES
+class SingleBrowserPool:
+    """Single browser instance shared across ALL sources."""
+    
+    _instance = None
+    _crawler = None
+    _initialized = False
+    _lock = asyncio.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        atexit.register(self.cleanup_sync)
+        logger.info("Single browser pool initialized - ONE Chrome for all sources")
+    
+    async def get_global_browser(self) -> AsyncWebCrawler:
+        """Get the single global browser instance for all sources."""
+        async with self._lock:
+            if self._crawler is None:
+                await self._create_single_browser()
+            return self._crawler
+    
+    async def _create_single_browser(self):
+        """Create the single browser instance for all sources."""
+        try:
+            browser_config = BrowserConfig(
+                browser_type="chromium",
+                headless=True,
+                viewport_width=1280,
+                viewport_height=720,
+                extra_args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-features=VizDisplayCompositor",
+                    "--disable-extensions",
+                    "--disable-plugins",
+                    "--memory-pressure-off",
+                    "--max-old-space-size=512",  # Higher for single browser
+                    "--aggressive-cache-discard",
+                    "--disable-background-timer-throttling",
+                    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                ]
+            )
+            
+            self._crawler = AsyncWebCrawler(config=browser_config, verbose=False)
+            await self._crawler.astart()
+            
+            logger.info("Created SINGLE global browser for ALL 29 sources")
+            
+        except Exception as e:
+            logger.error(f"Failed to create single browser: {e}")
+            raise
+    
+    def cleanup_sync(self):
+        """Cleanup single browser on exit."""
+        try:
+            if self._crawler:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(self._crawler.aclose())
+                logger.info("Single global browser cleaned up")
+        except:
+            pass
+
+# Global single browser instance
+_single_browser_pool = SingleBrowserPool()
 
 
 class EnhancedCrawl4AIExtractor:
@@ -33,43 +109,20 @@ class EnhancedCrawl4AIExtractor:
         self._initialize_crawler()
     
     def _initialize_crawler(self):
-        """Initialize the Crawl4AI crawler with enhanced configuration."""
-        try:
-            # Enhanced browser configuration for financial sites
-            browser_config = BrowserConfig(
-                browser_type="chromium",
-                headless=True,
-                viewport_width=1920,
-                viewport_height=1080,
-                # Anti-detection measures
-                extra_args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage", 
-                    "--disable-gpu",
-                    "--disable-features=VizDisplayCompositor",
-                    "--disable-web-security",
-                    "--disable-blink-features=AutomationControlled",
-                    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ]
-            )
-            
-            # Initialize crawler
-            self.crawler = AsyncWebCrawler(config=browser_config)
-            logger.info(f"Enhanced Crawl4AI extractor initialized for {self.config.name}")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize Enhanced Crawl4AI for {self.config.name}: {str(e)}")
-            self.crawler = None
+        """Initialize the Crawl4AI extractor to use SINGLE global browser only."""
+        # DO NOT create individual browser instances - use the single global browser pool
+        self.crawler = None  # Always None - we use the global browser pool
+        logger.info(f"Enhanced Crawl4AI extractor initialized for {self.config.name} - using SINGLE global browser")
     
     async def crawl_website(self, base_url: str, max_articles: int) -> List[ArticleMetadata]:
-        """Crawl website to discover and extract articles with enhanced error handling."""
-        if not self.crawler:
-            raise Exception(f"Crawler not initialized for {self.config.name}")
-            
+        """Crawl website using the SINGLE global browser shared by all sources."""
         articles = []
         
         try:
-            logger.info(f"🚀 Starting enhanced crawl of {base_url} for {self.config.name}")
+            logger.info(f"🚀 Starting enhanced crawl of {base_url} for {self.config.name} using SINGLE browser")
+            
+            # Get the SINGLE global browser instance (shared by ALL sources)
+            crawler = await _single_browser_pool.get_global_browser()
             
             # Try progressive timeout strategy
             for attempt, timeout_seconds in enumerate(self.retry_timeouts, 1):
@@ -79,9 +132,9 @@ class EnhancedCrawl4AIExtractor:
                     # Configure crawl settings with timeout
                     config = self._create_crawl_config(timeout_seconds)
                     
-                    # Perform the crawl with timeout
+                    # Perform the crawl with timeout using SINGLE browser
                     result = await asyncio.wait_for(
-                        self.crawler.arun(url=base_url, config=config),
+                        crawler.arun(url=base_url, config=config),
                         timeout=timeout_seconds + 10  # Add 10s buffer for cleanup
                     )
                     
@@ -99,10 +152,10 @@ class EnhancedCrawl4AIExtractor:
                             
                             for link_url in article_links[:max_articles-1]:  # -1 because we already have the main page
                                 try:
-                                    # Use shorter timeout for individual articles
+                                    # Use shorter timeout for individual articles with SINGLE browser
                                     article_timeout = min(timeout_seconds, 45)
                                     link_result = await asyncio.wait_for(
-                                        self.crawler.arun(url=link_url, config=config),
+                                        crawler.arun(url=link_url, config=config),
                                         timeout=article_timeout
                                     )
                                     
@@ -269,25 +322,25 @@ class EnhancedCrawl4AIExtractor:
         return unique_links[:20]  # Limit to avoid too many requests
     
     async def extract_article_content(self, url: str) -> Optional[ArticleMetadata]:
-        """Extract content from a specific article URL with timeout handling."""
-        if not self.crawler:
-            raise Exception(f"Crawler not initialized for {self.config.name}")
-            
+        """Extract content using the SINGLE global browser shared by all sources."""
         try:
+            # Get the SINGLE global browser instance (shared by ALL sources)
+            crawler = await _single_browser_pool.get_global_browser()
+            
             # Use progressive timeout for individual articles
             for attempt, timeout_seconds in enumerate([30, 60, 90], 1):
                 try:
-                    logger.debug(f"📄 {self.config.name}: Extracting article {url} (attempt {attempt}, timeout {timeout_seconds}s)")
+                    logger.debug(f"📄 {self.config.name}: Extracting {url} (attempt {attempt}, timeout {timeout_seconds}s) using SINGLE browser")
                     
                     config = self._create_crawl_config(timeout_seconds)
                     
                     result = await asyncio.wait_for(
-                        self.crawler.arun(url=url, config=config),
+                        crawler.arun(url=url, config=config),
                         timeout=timeout_seconds + 5
                     )
                     
                     if result.success:
-                        logger.debug(f"✅ {self.config.name}: Successfully extracted article {url}")
+                        logger.debug(f"✅ {self.config.name}: Successfully extracted {url} using SINGLE browser")
                         return self._process_crawl_result(result, url)
                     else:
                         logger.warning(f"⚠️ {self.config.name}: Article extraction failed on attempt {attempt}: {result.error_message}")
@@ -309,32 +362,27 @@ class EnhancedCrawl4AIExtractor:
             return None
     
     async def health_check(self) -> bool:
-        """Check if Enhanced Crawl4AI extractor is healthy."""
+        """Check health using the SINGLE global browser."""
         try:
-            if not self.crawler:
-                logger.warning(f"⚠️ {self.config.name}: Crawler not initialized for health check")
-                return False
-                
-            # Try a simple crawl test with short timeout
-            logger.debug(f"🔍 {self.config.name}: Running health check...")
+            # Get the SINGLE global browser (shared by all sources)
+            crawler = await _single_browser_pool.get_global_browser()
+            
+            logger.debug(f"{self.config.name}: Running health check with SINGLE browser")
             
             test_result = await asyncio.wait_for(
-                self.crawler.arun(
+                crawler.arun(
                     url="https://httpbin.org/html",
                     config=CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
                 ),
-                timeout=15  # Short timeout for health check
+                timeout=15
             )
             
             is_healthy = test_result.success
-            logger.debug(f"💚 {self.config.name}: Health check {'passed' if is_healthy else 'failed'}")
+            logger.debug(f"{self.config.name}: Health check {'passed' if is_healthy else 'failed'}")
             return is_healthy
             
-        except asyncio.TimeoutError:
-            logger.warning(f"⏰ {self.config.name}: Health check timeout")
-            return False
         except Exception as e:
-            logger.error(f"❌ {self.config.name}: Health check failed: {str(e)}")
+            logger.error(f"{self.config.name}: Health check failed: {str(e)}")
             return False
     
     async def __aenter__(self):

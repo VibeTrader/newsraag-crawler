@@ -43,7 +43,7 @@ from crawler.health.health_server import start_health_server
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
 # Constants
-CRAWL_INTERVAL_SECONDS = 3600  # Check sources every hour
+CRAWL_INTERVAL_SECONDS = 10800  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every day
 
 
