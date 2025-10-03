@@ -1,6 +1,2 @@
-Enhanced crawler started at: 2025-10-03T19:22:29.281521
-Sources loaded: ['babypips', 'fxstreet', 'marketwatch', 'kabutan', 'yahoo_finance', 'reuters_business', 'foxnews', 'foxbusiness', 'nbcnews', 'nbcbusiness', 'usatoday', 'usatoday_money', 'cnbc', 'cnbc_world', 'forexfactory', 'forexfactory_rss', 'tradingeconomics', 'tradingeconomics_indicators', 'investing_forex', 'investing_general', 'investing_analysis', 'dailyfx', 'dailyfx_analysis', 'bloomberg_markets', 'ft_markets', 'epi', 'fred_blog', 'coindesk', 'cointelegraph']
-Enhanced cycle completed at: 2025-10-03T20:07:11.610549
-  Sources: 17/29 succeeded
-  Articles: 139 processed
-  Next cycle: 2025-10-03T20:22:29.282194
+Enhanced crawler started at: 2025-10-04T00:46:04.696778
+Sources loaded: ['babypips', 'fxstreet', 'marketwatch', 'kabutan', 'foxnews', 'foxbusiness', 'nbcnews', 'nbcbusiness', 'forexfactory', 'bloomberg_markets']
