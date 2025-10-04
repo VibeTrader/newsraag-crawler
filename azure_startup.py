@@ -218,6 +218,38 @@ def main():
     
     print("Directories created")
     
+    # Install Playwright browsers for Azure App Service
+    print("Installing Playwright browsers...")
+    try:
+        import subprocess
+        
+        # Install chromium browser
+        result = subprocess.run([
+            'python', '-m', 'playwright', 'install', 'chromium'
+        ], capture_output=True, text=True, timeout=240)
+        
+        if result.returncode == 0:
+            print("✅ Playwright chromium installed successfully")
+        else:
+            print(f"⚠️ Playwright install output: {result.stdout}")
+            print(f"⚠️ Playwright install errors: {result.stderr}")
+        
+        # Install system dependencies  
+        deps_result = subprocess.run([
+            'python', '-m', 'playwright', 'install-deps', 'chromium'
+        ], capture_output=True, text=True, timeout=120)
+        
+        if deps_result.returncode == 0:
+            print("✅ Playwright dependencies installed")
+        else:
+            print(f"⚠️ Dependencies install: {deps_result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        print("⚠️ Playwright installation timed out - continuing with fallbacks")
+    except Exception as e:
+        print(f"⚠️ Playwright installation error: {e}")
+        print("Continuing - app will use BeautifulSoup fallback extractors")
+    
     # Check dependencies first
     asyncio.run(check_dependencies())
     
