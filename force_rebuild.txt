@@ -1,0 +1,3 @@
+# Force Azure to rebuild by creating a new file
+# This will make Azure recognize changes and trigger a fresh build
+echo "Deployment timestamp: $(Get-Date)" > deployment_trigger.txt

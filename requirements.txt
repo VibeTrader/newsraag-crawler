@@ -1,3 +1,4 @@
+# Force fresh build - updated 2025-10-13
 # Phase 1: Core lightweight dependencies (install first)
 python-dotenv>=1.0.0
 loguru

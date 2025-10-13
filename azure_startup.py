@@ -2,6 +2,7 @@
 """
 Azure-optimized startup script for NewsRagnarok Crawler.
 Handles the health server and main crawler in the same process.
+Version: 2.1 - Fixed typing_extensions conflict
 """
 import os
 import sys
@@ -12,10 +13,28 @@ import threading
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+# Fix typing_extensions conflict BEFORE any other imports
+# Remove /agents/python from sys.path to avoid conflicting typing_extensions
+sys.path = [p for p in sys.path if '/agents/python' not in p]
+
+# Also clean up PYTHONPATH environment variable
+if 'PYTHONPATH' in os.environ:
+    pythonpath_parts = os.environ['PYTHONPATH'].split(':')
+    cleaned_parts = [p for p in pythonpath_parts if '/agents/python' not in p]
+    os.environ['PYTHONPATH'] = ':'.join(cleaned_parts)
+    print(f"Cleaned PYTHONPATH: {os.environ['PYTHONPATH']}")
+
 # Add current directory to Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
+
+# Ensure virtual environment packages are prioritized
+venv_site_packages = '/tmp/8de0a897b5381ed/antenv/lib/python3.12/site-packages'
+if os.path.exists(venv_site_packages) and venv_site_packages not in sys.path:
+    sys.path.insert(0, venv_site_packages)
+
+print(f"Python path after cleanup: {sys.path[:3]}...")  # Show first 3 entries for debugging
 
 class HealthHandler(BaseHTTPRequestHandler):
     """HTTP handler for Azure health checks."""
@@ -191,6 +210,15 @@ async def run_crawler():
     app_state['crawler_running'] = True
     
     try:
+        # Verify typing_extensions can import Sentinel before proceeding
+        try:
+            from typing_extensions import Sentinel
+            print("✅ typing_extensions.Sentinel imported successfully")
+        except ImportError as e:
+            print(f"❌ typing_extensions.Sentinel import failed: {e}")
+            print(f"sys.path: {sys.path}")
+            raise
+        
         # Import and run the main crawler
         from main import main_loop
         await main_loop()
