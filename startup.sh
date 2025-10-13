@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+chmod +x startup.sh
 
 echo "=== NewsRagnarok Azure Optimized Startup ==="
 echo "🌐 Azure App Service Deployment"

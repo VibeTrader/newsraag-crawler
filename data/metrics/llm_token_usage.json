@@ -1,33 +1,33 @@
 {
-  "daily_tokens": 116739,
-  "monthly_tokens": 380140,
-  "total_tokens": 380140,
-  "daily_date": "2025-10-04",
+  "daily_tokens": 30293,
+  "monthly_tokens": 410433,
+  "total_tokens": 410433,
+  "daily_date": "2025-10-13",
   "monthly_date": "2025-10",
-  "request_count": 186,
-  "last_updated": "2025-10-04T22:24:16.647061",
+  "request_count": 206,
+  "last_updated": "2025-10-13T20:39:26.882062",
   "models": {
     "gpt-4.1-stocks": {
-      "tokens": 379440,
-      "requests": 179,
+      "tokens": 409533,
+      "requests": 197,
       "types": {
         "content_cleaning": {
-          "tokens": 379209,
-          "requests": 172
+          "tokens": 409236,
+          "requests": 188
         },
         "health_check": {
-          "tokens": 231,
-          "requests": 7
+          "tokens": 297,
+          "requests": 9
         }
       }
     },
     "gpt-4": {
-      "tokens": 700,
-      "requests": 7,
+      "tokens": 900,
+      "requests": 9,
       "types": {
         "test": {
-          "tokens": 700,
-          "requests": 7
+          "tokens": 900,
+          "requests": 9
         }
       }
     }

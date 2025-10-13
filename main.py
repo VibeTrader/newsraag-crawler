@@ -33,11 +33,15 @@ from crawler.extensions.html_extensions import register_html_extensions
 # Import robust RSS parser for enhanced error handling
 from crawler.utils.robust_rss_parser import RobustRSSParser
 
-# Import existing utilities (unchanged)
+# Import existing utilities (enhanced with memory optimization)
 from crawler.utils.dependency_checker import check_dependencies
 from crawler.utils.memory_monitor import log_memory_usage
 from crawler.utils.cleanup import cleanup_old_data, clear_qdrant_collection, recreate_qdrant_collection
 from crawler.health.health_server import start_health_server
+
+# NEW: Import memory optimization utilities
+from utils.memory_optimizer import get_memory_optimizer, setup_crawler_memory_optimization
+from utils.streaming_processor import create_memory_efficient_processor, process_with_memory_management
 
 # Define path to config
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
@@ -436,18 +440,44 @@ async def main_loop():
                     # Small delay between sources to manage memory
                     await asyncio.sleep(5)
                     
-                    # Garbage collect after each source
-                    if gc and i % 2 == 1:  # Every 2 sources
-                        logger.info(f"🗑️ Performing garbage collection after source {i+1}/{len(sources)}")
-                        gc.collect()
-                        if process:
-                            logger.info(f"💾 Memory after source {i+1}: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+                    # NEW: Intelligent memory optimization (replaces manual GC)
+                    if memory_optimizer and i % 2 == 1:  # Every 2 sources
+                        should_optimize, level = memory_optimizer.should_optimize()
+                        if should_optimize:
+                            logger.info(f"🧠 Intelligent memory optimization after source {i+1}/{len(sources)}: {level}")
+                            optimization_results = memory_optimizer.optimize_memory(level)
+                            logger.info(f"💾 Memory optimization results: "
+                                       f"saved {optimization_results['memory_saved_mb']:.2f} MB "
+                                       f"in {optimization_results['optimization_time']:.2f}s")
+                        else:
+                            # Light optimization for consistency
+                            gc.collect()
+                            if process:
+                                logger.info(f"💾 Memory after source {i+1}: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+                    else:
+                        # Fallback to simple GC if optimizer not available
+                        if gc and i % 2 == 1:  # Every 2 sources
+                            logger.info(f"🗑️ Performing garbage collection after source {i+1}/{len(sources)}")
+                            gc.collect()
+                            if process:
+                                logger.info(f"💾 Memory after source {i+1}: {process.memory_info().rss / 1024 / 1024:.2f} MB")
                             
-                    # Check for excessive memory usage
-                    if process and process.memory_info().rss > 800 * 1024 * 1024:  # Over 800MB
-                        logger.warning("⚠️ Memory usage high, performing emergency cleanup")
-                        gc.collect()
-                        await asyncio.sleep(10)  # Give system time to reclaim memory
+                    # NEW: Smart emergency memory management
+                    if process:
+                        current_memory = process.memory_info().rss
+                        memory_mb = current_memory / 1024 / 1024
+                        
+                        if memory_mb > 800:  # Over 800MB
+                            logger.warning(f"⚠️ High memory usage detected: {memory_mb:.2f} MB")
+                            if memory_optimizer:
+                                logger.info("🚨 Triggering emergency memory optimization")
+                                emergency_results = memory_optimizer.optimize_memory("critical")
+                                logger.info(f"🚨 Emergency optimization completed: "
+                                           f"saved {emergency_results['memory_saved_mb']:.2f} MB")
+                            else:
+                                logger.warning("⚠️ Memory optimizer unavailable, falling back to basic cleanup")
+                                gc.collect()
+                                await asyncio.sleep(10)  # Give system time to reclaim memory
                         
                 except Exception as e:
                     logger.error(f"❌ Error processing source {source_name}: {e}")
@@ -489,13 +519,29 @@ async def main_loop():
                     logger.info(f"   📡 {source_name}: {result['articles_processed']}/{result['articles_discovered']} "
                                f"({source_success_rate:.1f}% success, {result['articles_skipped']} skipped)")
             
-            # Final garbage collection at end of cycle
-            if gc:
+            # NEW: Final intelligent memory optimization at end of cycle
+            if memory_optimizer:
+                logger.info("🧠 Final memory optimization at end of cycle...")
+                should_optimize, level = memory_optimizer.should_optimize()
+                final_results = memory_optimizer.optimize_memory(level if should_optimize else "soft")
+                
+                final_memory = final_results['memory_after_mb']
+                memory_saved = final_results['memory_saved_mb']
+                logger.info(f"💾 Final memory optimization: {final_memory:.2f} MB "
+                           f"(saved {memory_saved:.2f} MB in {final_results['optimization_time']:.2f}s)")
+                
+                # Log memory optimizer statistics
+                optimizer_stats = memory_optimizer.get_statistics()
+                logger.info(f"🔧 Memory Optimizer Stats: "
+                           f"{optimizer_stats['cleanup_count']} cleanups, "
+                           f"{optimizer_stats['aggressive_cleanup_count']} aggressive cleanups")
+            else:
+                # Fallback to basic garbage collection
                 logger.info("🗑️ Forcing final garbage collection at end of cycle...")
-                gc.collect()
+                collected = gc.collect()
                 if process:
                     final_memory = process.memory_info().rss / 1024 / 1024
-                    logger.info(f"💾 Memory after cycle end: {final_memory:.2f} MB")
+                    logger.info(f"💾 Memory after cycle end: {final_memory:.2f} MB (GC freed {collected} objects)")
             
             # Calculate next run time
             cycle_duration = time.monotonic() - start_time
@@ -616,6 +662,16 @@ if __name__ == "__main__":
     logger.info("🔍 Initializing monitoring system...")
     metrics, health_check, duplicate_detector, app_insights, alert_manager = init_monitoring()
     logger.info("✅ Monitoring system initialized successfully")
+    
+    # NEW: Initialize memory optimization system
+    logger.info("💾 Initializing memory optimization...")
+    try:
+        memory_optimizer = setup_crawler_memory_optimization()
+        logger.info("✅ Memory optimization system initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize memory optimization: {e}")
+        logger.warning("⚠️ Continuing without memory optimization")
+        memory_optimizer = None
     
     # Test Slack alerts on startup
     if os.getenv("ALERT_SLACK_ENABLED", "false").lower() == "true":

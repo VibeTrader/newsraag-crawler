@@ -69,9 +69,18 @@ class LLMContentCleaner:
             
         # Check if content is too long
         max_length = self.llm_config.get("max_content_length", 100000)
+        # NEW: Use environment variable for content size limit
+        max_length = min(max_length, int(os.getenv("CONTENT_MAX_SIZE", "50000")))
+        
         if len(raw_content) > max_length:
             logger.warning(f"Content too long for LLM cleaning ({len(raw_content)} chars). Truncating to {max_length} chars.")
-            raw_content = raw_content[:max_length]        
+            # Smart truncation at sentence boundary
+            truncated = raw_content[:max_length]
+            last_period = truncated.rfind('.')
+            if last_period > max_length * 0.8:  # If we can save 20% of content
+                raw_content = truncated[:last_period + 1]
+            else:
+                raw_content = truncated + "..."        
         # Check if we're within token limits
         estimated_tokens = len(raw_content.split()) * 1.5  # Rough estimate: words × 1.5
         if not self.token_tracker.can_make_request(int(estimated_tokens)):

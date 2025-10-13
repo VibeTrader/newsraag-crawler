@@ -27,7 +27,6 @@ qdrant-client>=1.9.0
 numpy>=1.24.0
 openai>=1.0.0
 azure-storage-blob>=12.25.0
-redis>=5.0.0
 azure-identity>=1.15.0
 
 # Testing dependencies (development only - comment out for production)
@@ -37,7 +36,6 @@ pytest-mock>=3.11.0
 pytest-cov>=4.1.0
 responses>=0.23.0
 httpx>=0.24.0
-fakeredis>=2.18.0
 freezegun>=1.2.0
 factory-boy>=3.3.0
 Faker>=19.0.0

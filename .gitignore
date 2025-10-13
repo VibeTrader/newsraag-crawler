@@ -3,3 +3,33 @@ __pycache__/
 venv
 NewsRag-api
 .venv
+
+# Test and development files (exclude from deployment)
+.pytest_cache/
+htmlcov/
+test_reports/
+.benchmarks/
+*.pyc
+*.pyo
+.coverage
+coverage.xml
+
+# Logs and temporary files
+logs/
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
