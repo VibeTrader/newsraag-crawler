@@ -101,7 +101,7 @@ jobs:
       contents: read
 
     environment:
-      name: 'Production'
+      name: 'production'
       url: 'https://newscrawler.azurewebsites.net'
 
     steps:
@@ -131,9 +131,7 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_C65F16397D534887B79C52BA051C4D59 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_A65604C5EBD94743B85BC85631C81C8E }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_528D6DED7A1A4438A48ED9AF0F1B99E0 }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
