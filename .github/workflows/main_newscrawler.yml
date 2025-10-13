@@ -115,6 +115,16 @@ jobs:
           echo "📦 Deployment package contents:"
           ls -la
           echo ""
+          echo "🔍 Checking for azure_startup.py..."
+          if [ -f "azure_startup.py" ]; then
+            echo "✅ azure_startup.py found"
+            echo "📄 File size: $(stat -c%s azure_startup.py) bytes"
+          else
+            echo "❌ azure_startup.py NOT found!"
+            echo "This will cause deployment to fail!"
+            exit 1
+          fi
+          echo ""
           echo "📁 Key directories:"
           ls -la crawler/ monitoring/ clients/ || echo "Some directories may be missing"
       
