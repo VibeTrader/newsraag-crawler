@@ -255,39 +255,40 @@ class TestAzureIntegration:
             pytest.skip("app_insights not available")
 
 
-class TestRedisIntegration:
-    """Test Redis integration."""
-    
-    @pytest.mark.integration
-    @pytest.mark.redis
-    def test_redis_availability(self):
-        """Test Redis client availability."""
-        try:
-            import redis
-            assert redis is not None
-        except ImportError:
-            pytest.skip("redis package not available")
-    
-    @pytest.mark.integration
-    @pytest.mark.redis
-    def test_redis_cache_integration(self):
-        """Test Redis cache integration if available."""
-        try:
-            from crawler.redis_cache import get_redis_client
-        except ImportError:
-            try:
-                # Alternative location
-                from crawler.utils.redis_cache import get_redis_client
-            except ImportError:
-                pytest.skip("Redis cache module not available")
-        
-        try:
-            client = get_redis_client()
-            if client:
-                assert client is not None
-        except Exception:
-            # Redis connection issues are acceptable
-            pass
+# REDIS TESTS DISABLED - Redis removed from system
+# class TestRedisIntegration:
+#     """Test Redis integration."""
+#     
+#     @pytest.mark.integration
+#     @pytest.mark.redis
+#     def test_redis_availability(self):
+#         """Test Redis client availability."""
+#         try:
+#             import redis
+#             assert redis is not None
+#         except ImportError:
+#             pytest.skip("redis package not available")
+#     
+#     @pytest.mark.integration
+#     @pytest.mark.redis
+#     def test_redis_cache_integration(self):
+#         """Test Redis cache integration if available."""
+#         try:
+#             from crawler.redis_cache import get_redis_client
+#         except ImportError:
+#             try:
+#                 # Alternative location
+#                 from crawler.utils.redis_cache import get_redis_client
+#             except ImportError:
+#                 pytest.skip("Redis cache module not available")
+#         
+#         try:
+#             client = get_redis_client()
+#             if client:
+#                 assert client is not None
+#         except Exception:
+#             # Redis connection issues are acceptable
+#             pass
 
 
 class TestEndToEndIntegration:
