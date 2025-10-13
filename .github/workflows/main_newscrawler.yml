@@ -138,7 +138,6 @@ jobs:
         with:
           app-name: 'newscrawler'
           slot-name: 'Production'
-          timeout: 600000
           restart: false
 
       - name: Wait for application startup
