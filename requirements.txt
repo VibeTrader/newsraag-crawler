@@ -7,7 +7,7 @@ pytz>=2024.0
 pydantic>=2.11.0
 packaging>=23.0
 setuptools>=65.0.0
-typing_extensions>=4.8.0
+typing_extensions>=4.12.0
 
 # Phase 2: Essential Azure and async
 azure-core>=1.29.0
@@ -27,6 +27,7 @@ qdrant-client>=1.9.0
 numpy>=1.24.0
 openai>=1.0.0
 azure-storage-blob>=12.25.0
+redis>=5.0.0
 azure-identity>=1.15.0
 
 # Testing dependencies (development only - comment out for production)
