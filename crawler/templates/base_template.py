@@ -408,14 +408,42 @@ class BaseContentStorage(IContentStorage):
             
             # Store in vector database
             # Prepare metadata for vector storage  
+            # Prepare metadata for vector storage with REAL publication date
             doc_metadata = {
                 "title": metadata.title,
                 "source": metadata.source_name,
                 "author": metadata.author,
                 "category": metadata.category,
-                "publishDate": metadata.published_date.isoformat() if metadata.published_date else None,
                 "article_id": metadata.article_id
             }
+            
+            # 🔧 CRITICAL: Store the REAL publication date, not crawl time
+            if metadata.published_date:
+                from loguru import logger
+                import pytz
+                
+                # Store both formats for compatibility
+                doc_metadata["publishDate"] = metadata.published_date.isoformat()
+                
+                # Also store PST version for cleanup queries
+                if metadata.published_date.tzinfo is None:
+                    utc_date = metadata.published_date.replace(tzinfo=pytz.UTC)
+                else:
+                    utc_date = metadata.published_date.astimezone(pytz.UTC)
+                
+                pst_tz = pytz.timezone('US/Pacific')
+                pst_date = utc_date.astimezone(pst_tz)
+                doc_metadata["publishDatePst"] = pst_date.isoformat()
+                
+                logger.info(f"📅 Storing publication date: {metadata.published_date.isoformat()}")
+                logger.info(f"📅 Storing PST date: {pst_date.isoformat()}")
+            else:
+                # Fallback - but this should rarely happen now
+                from datetime import datetime, timezone
+                current_time = datetime.now(timezone.utc)
+                doc_metadata["publishDate"] = current_time.isoformat()
+                doc_metadata["publishDatePst"] = current_time.isoformat()
+                logger.warning("⚠️ No publication date found, using current time as fallback")
             
             # Use add_document method with content string and metadata dict
             result = await self.vector_client.add_document(content, doc_metadata)

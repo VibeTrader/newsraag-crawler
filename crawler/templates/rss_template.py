@@ -13,7 +13,7 @@ except ImportError:
 import hashlib
 import asyncio
 from typing import AsyncGenerator, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from crawler.templates.base_template import (
     BaseNewsSourceTemplate, BaseArticleDiscovery, BaseContentExtractor,
@@ -129,8 +129,14 @@ class RSSArticleDiscovery(BaseArticleDiscovery):
             return None
     
     def _parse_publication_date(self, entry) -> datetime:
-        """Parse publication date from RSS entry."""
-        # Try different date fields
+        """Parse exact publication date from RSS entry - stores real article time, not crawl time."""
+        from loguru import logger
+        from typing import Optional
+        
+        title = getattr(entry, 'title', '')
+        logger.info(f"🔍 Parsing publication date for: {title[:50]}...")
+        
+        # Step 1: Try standard RSS date fields first
         date_fields = ['published_parsed', 'updated_parsed', 'created_parsed']
         
         for field in date_fields:
@@ -138,23 +144,124 @@ class RSSArticleDiscovery(BaseArticleDiscovery):
                 try:
                     import time
                     timestamp = time.mktime(entry[field])
-                    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                except Exception:
+                    parsed_date = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                    logger.info(f"✅ Found date in RSS field '{field}': {parsed_date.isoformat()}")
+                    return parsed_date
+                except Exception as e:
+                    logger.debug(f"Failed to parse {field}: {e}")
                     continue
         
-        # Try string date fields
+        # Step 2: Try string date fields
         date_string_fields = ['published', 'updated', 'created']
         for field in date_string_fields:
             if hasattr(entry, field) and entry[field]:
                 try:
-                    from dateutil import parser
-                    return parser.parse(entry[field])
-                except Exception:
+                    from dateutil import parser as date_parser
+                    raw_date = entry[field]
+                    parsed_date = date_parser.parse(raw_date)
+                    # Ensure timezone awareness
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+                    logger.info(f"✅ Found date in RSS field '{field}': {parsed_date.isoformat()}")
+                    return parsed_date
+                except Exception as e:
+                    logger.debug(f"Failed to parse {field}: {e}")
                     continue
         
-        # Default to current time
-        print(f"Could not parse publication date for entry, using current time")
-        return datetime.now(timezone.utc)
+        # Step 3: Extract from article content - THIS IS THE KEY PART
+        description = getattr(entry, 'description', '') or getattr(entry, 'summary', '')
+        
+        if description:
+            logger.info("🔍 Extracting date from article content...")
+            extracted_date = self._extract_date_from_content(description, title)
+            if extracted_date:
+                return extracted_date
+        
+        # Step 4: If all else fails, use a very old date for cleanup
+        logger.error(f"❌ Could not parse publication date for: {title}")
+        fallback_date = datetime.now(timezone.utc) - timedelta(days=30)
+        logger.warning(f"⚠️ Using fallback date (30 days old): {fallback_date.isoformat()}")
+        return fallback_date
+    
+    def _extract_date_from_content(self, content: str, title: str) -> Optional[datetime]:
+        """Extract exact publication date from article content."""
+        from loguru import logger
+        import re
+        from dateutil import parser as date_parser
+        from typing import Optional
+        
+        logger.info(f"Content preview: {content[:200]}...")
+        
+        # PATTERN 1: NBC News style - "Date: Oct. 11, 2025, 8:48 AM EDT"
+        nbc_pattern = r'Date:\s*(\w{3,9}\.?\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}\s+[AP]M\s+\w{2,4})'
+        match = re.search(nbc_pattern, content, re.IGNORECASE)
+        if match:
+            date_str = match.group(1)
+            try:
+                parsed_date = date_parser.parse(date_str)
+                logger.info(f"✅ NBC pattern found: '{date_str}' → {parsed_date.isoformat()}")
+                return parsed_date
+            except Exception as e:
+                logger.warning(f"Failed to parse NBC date '{date_str}': {e}")
+        
+        # PATTERN 2: Updated time - "Updated Oct. 11, 2025, 10:13 AM EDT"  
+        updated_pattern = r'Updated[:\s]*(\w{3,9}\.?\s+\d{1,2},\s+\d{4},\s+\d{1,2}:\d{2}\s+[AP]M\s+\w{2,4})'
+        match = re.search(updated_pattern, content, re.IGNORECASE)
+        if match:
+            date_str = match.group(1)
+            try:
+                parsed_date = date_parser.parse(date_str)
+                logger.info(f"✅ Updated pattern found: '{date_str}' → {parsed_date.isoformat()}")
+                return parsed_date
+            except Exception as e:
+                logger.warning(f"Failed to parse updated date '{date_str}': {e}")
+        
+        # PATTERN 3: Simple date without time - "Date: Oct. 12, 2025"
+        simple_date_pattern = r'Date:\s*(\w{3,9}\.?\s+\d{1,2},\s+\d{4})'
+        match = re.search(simple_date_pattern, content, re.IGNORECASE)
+        if match:
+            date_str = match.group(1)
+            try:
+                parsed_date = date_parser.parse(date_str)
+                # Default to 9 AM UTC for articles without specific time
+                if parsed_date.hour == 0 and parsed_date.minute == 0:
+                    parsed_date = parsed_date.replace(hour=9, tzinfo=timezone.utc)
+                logger.info(f"✅ Simple date pattern found: '{date_str}' → {parsed_date.isoformat()}")
+                return parsed_date
+            except Exception as e:
+                logger.warning(f"Failed to parse simple date '{date_str}': {e}")
+        
+        # PATTERN 4: Fox Business style - look in different parts of content
+        # Try to find any date pattern with time
+        time_pattern = r'(\w{3,9}\.?\s+\d{1,2},\s+\d{4}[,\s]+\d{1,2}:\d{2}\s*[AP]M)'
+        match = re.search(time_pattern, content, re.IGNORECASE)
+        if match:
+            date_str = match.group(1)
+            try:
+                parsed_date = date_parser.parse(date_str)
+                logger.info(f"✅ General time pattern found: '{date_str}' → {parsed_date.isoformat()}")
+                return parsed_date
+            except Exception as e:
+                logger.warning(f"Failed to parse general time '{date_str}': {e}")
+        
+        # PATTERN 5: Look in title as last resort
+        if title:
+            logger.info(f"🔍 Checking title for dates: {title}")
+            title_date_pattern = r'(\d{1,2}/\d{1,2}/\d{4}|\w{3,9}\s+\d{1,2},?\s+\d{4})'
+            match = re.search(title_date_pattern, title, re.IGNORECASE)
+            if match:
+                date_str = match.group(1)
+                try:
+                    parsed_date = date_parser.parse(date_str)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+                    logger.info(f"✅ Title date found: '{date_str}' → {parsed_date.isoformat()}")
+                    return parsed_date
+                except Exception as e:
+                    logger.warning(f"Failed to parse title date '{date_str}': {e}")
+        
+        logger.warning("❌ No date patterns found in content")
+        return None
     
     def _generate_article_id(self, title: str, url: str) -> str:
         """Generate unique article ID."""

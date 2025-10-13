@@ -436,13 +436,13 @@ class QdrantClientWrapper:
             pst = pytz.timezone('US/Pacific')
             cutoff_time = datetime.now(pst) - timedelta(hours=hours)
             
-            # Search for old documents
+            # Search for old documents using publishDate (exists in all documents)
             old_docs = self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=models.Filter(
                     must=[
                         models.FieldCondition(
-                            key="publishDatePst",
+                            key="publishDate",
                             range=models.DatetimeRange(
                                 lt=cutoff_time.isoformat()
                             )
