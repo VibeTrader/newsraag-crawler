@@ -5,6 +5,13 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  workflow_call:  # This enables the workflow to be called by other workflows
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: false
+        default: 'all'
+        type: string
   workflow_dispatch:
     inputs:
       test_type:
@@ -24,7 +31,7 @@ jobs:
   smoke-tests:
     name: 🔥 Smoke Tests
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.inputs.test_type == 'smoke' || github.event.inputs.test_type == 'all'
+    if: github.event_name == 'push' || github.event.inputs.test_type == 'smoke' || github.event.inputs.test_type == 'all' || github.event_name == 'workflow_call'
     
     steps:
     - name: Checkout code
@@ -90,7 +97,7 @@ jobs:
   unit-tests:
     name: 🔧 Unit Tests
     runs-on: ubuntu-latest
-    if: github.event.inputs.test_type == 'unit' || github.event.inputs.test_type == 'all' || github.event_name == 'push'
+    if: github.event.inputs.test_type == 'unit' || github.event.inputs.test_type == 'all' || github.event_name == 'push' || github.event_name == 'workflow_call'
     strategy:
       matrix:
         python-version: ['3.11', '3.12']
