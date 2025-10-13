@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Azure-optimized startup script for NewsRagnarok Crawler.
-Handles the health server and main crawler in the same process.
-Version: 2.1 - Fixed typing_extensions conflict
+Handles Azure's specific deployment quirks and path issues.
+Version: 3.0 - Azure deployment path fix
 """
 import os
 import sys
@@ -10,32 +10,98 @@ import time
 import json
 import asyncio
 import threading
+import subprocess
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Fix typing_extensions conflict BEFORE any other imports
-# Remove /agents/python from sys.path to avoid conflicting typing_extensions
-sys.path = [p for p in sys.path if '/agents/python' not in p]
+print("=" * 60)
+print("NewsRagnarok Crawler - Azure Startup Script v3.0")
+print("=" * 60)
+print(f"Current working directory: {os.getcwd()}")
+print(f"Script location: {os.path.abspath(__file__)}")
+print(f"Initial sys.path: {sys.path[:3]}...")
 
-# Also clean up PYTHONPATH environment variable
-if 'PYTHONPATH' in os.environ:
-    pythonpath_parts = os.environ['PYTHONPATH'].split(':')
-    cleaned_parts = [p for p in pythonpath_parts if '/agents/python' not in p]
-    os.environ['PYTHONPATH'] = ':'.join(cleaned_parts)
-    print(f"Cleaned PYTHONPATH: {os.environ['PYTHONPATH']}")
+# Fix Azure's path issues BEFORE any imports
+def fix_azure_paths():
+    """Fix Azure-specific path issues with typing_extensions conflict."""
+    
+    # Remove problematic Azure paths
+    original_path = sys.path.copy()
+    sys.path = [p for p in sys.path if '/agents/python' not in p]
+    
+    # Clean environment variable
+    if 'PYTHONPATH' in os.environ:
+        original_pythonpath = os.environ['PYTHONPATH']
+        pythonpath_parts = original_pythonpath.split(':')
+        cleaned_parts = [p for p in pythonpath_parts if '/agents/python' not in p]
+        os.environ['PYTHONPATH'] = ':'.join(cleaned_parts)
+        print(f"Cleaned PYTHONPATH from: {original_pythonpath}")
+        print(f"Cleaned PYTHONPATH to: {os.environ['PYTHONPATH']}")
+    
+    # Find the actual application directory
+    possible_paths = [
+        '/tmp/8de0a92bf622e9e',  # Current extracted path from logs
+        '/tmp/8de0a897b5381ed',  # Previous extracted path
+        '/home/site/wwwroot',     # Default Azure path
+        os.path.dirname(os.path.abspath(__file__))  # Script location
+    ]
+    
+    app_path = None
+    for path in possible_paths:
+        if os.path.exists(path) and os.path.exists(os.path.join(path, 'main.py')):
+            app_path = path
+            print(f"Found application at: {app_path}")
+            break
+    
+    if not app_path:
+        # Try to find it using glob
+        import glob
+        tmp_dirs = glob.glob('/tmp/*/main.py')
+        if tmp_dirs:
+            app_path = os.path.dirname(tmp_dirs[0])
+            print(f"Found application via glob at: {app_path}")
+    
+    if app_path:
+        # Add application path
+        if app_path not in sys.path:
+            sys.path.insert(0, app_path)
+        
+        # Add virtual environment site-packages
+        venv_paths = [
+            os.path.join(app_path, 'antenv/lib/python3.12/site-packages'),
+            os.path.join(app_path, 'antenv/lib/python3.11/site-packages'),
+            os.path.join(app_path, 'antenv/lib/python3.10/site-packages'),
+        ]
+        
+        for venv_path in venv_paths:
+            if os.path.exists(venv_path) and venv_path not in sys.path:
+                sys.path.insert(0, venv_path)
+                print(f"Added venv path: {venv_path}")
+                break
+        
+        # Change working directory to app path
+        os.chdir(app_path)
+        print(f"Changed working directory to: {app_path}")
+    else:
+        print("WARNING: Could not find application path!")
+    
+    print(f"Final sys.path: {sys.path[:3]}...")
+    
+    # Test typing_extensions import
+    try:
+        import typing_extensions
+        print(f"typing_extensions loaded from: {typing_extensions.__file__}")
+        if hasattr(typing_extensions, 'Sentinel'):
+            print("✓ typing_extensions.Sentinel is available")
+        else:
+            print("✗ typing_extensions.Sentinel is NOT available")
+    except ImportError as e:
+        print(f"✗ Failed to import typing_extensions: {e}")
 
-# Add current directory to Python path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
+# Apply the fix immediately
+fix_azure_paths()
 
-# Ensure virtual environment packages are prioritized
-venv_site_packages = '/tmp/8de0a897b5381ed/antenv/lib/python3.12/site-packages'
-if os.path.exists(venv_site_packages) and venv_site_packages not in sys.path:
-    sys.path.insert(0, venv_site_packages)
-
-print(f"Python path after cleanup: {sys.path[:3]}...")  # Show first 3 entries for debugging
-
+# Now we can safely import other modules
 class HealthHandler(BaseHTTPRequestHandler):
     """HTTP handler for Azure health checks."""
     
@@ -48,7 +114,6 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             
-            # Get current status from global state
             response = get_application_status()
             self.wfile.write(json.dumps(response, indent=2).encode())
             
@@ -104,7 +169,7 @@ def get_application_status():
         "metrics": {
             "cycles_completed": app_state['cycles_completed'],
             "cycles_failed": app_state['cycles_failed'],
-            "total_articles_processed": 0,  # Will be updated by actual crawler
+            "total_articles_processed": 0,
             "total_duplicates_detected": 0,
             "last_deletion_time": None,
             "last_deletion_count": 0
@@ -112,7 +177,8 @@ def get_application_status():
         "current_cycle": None,
         "timestamp": datetime.now().isoformat(),
         "service": "NewsRagnarok Crawler",
-        "port": os.environ.get('PORT', '8000')
+        "port": os.environ.get('PORT', '8000'),
+        "working_directory": os.getcwd()
     }
 
 def get_memory_usage():
@@ -210,27 +276,20 @@ async def run_crawler():
     app_state['crawler_running'] = True
     
     try:
-        # Verify typing_extensions can import Sentinel before proceeding
-        try:
-            from typing_extensions import Sentinel
-            print("✅ typing_extensions.Sentinel imported successfully")
-        except ImportError as e:
-            print(f"❌ typing_extensions.Sentinel import failed: {e}")
-            print(f"sys.path: {sys.path}")
-            raise
-        
         # Import and run the main crawler
         from main import main_loop
         await main_loop()
     except Exception as e:
         print(f"Crawler error: {e}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
         app_state['cycles_failed'] += 1
-        # Don't exit, just log the error and continue
+        # Don't exit, just log the error
 
 def main():
     """Main entry point for Azure deployment."""
     print("=" * 60)
-    print("NewsRagnarok Crawler - Azure Optimized Startup")
+    print("NewsRagnarok Crawler - Main Startup")
     print("=" * 60)
     print(f"Start time: {datetime.now()}")
     print(f"PORT: {os.environ.get('PORT', '8000')}")
@@ -249,18 +308,15 @@ def main():
     # Install Playwright browsers for Azure App Service
     print("Installing Playwright browsers...")
     try:
-        import subprocess
-        
-        # Install chromium browser
         result = subprocess.run([
             'python', '-m', 'playwright', 'install', 'chromium'
         ], capture_output=True, text=True, timeout=240)
         
         if result.returncode == 0:
-            print("✅ Playwright chromium installed successfully")
+            print("✓ Playwright chromium installed successfully")
         else:
-            print(f"⚠️ Playwright install output: {result.stdout}")
-            print(f"⚠️ Playwright install errors: {result.stderr}")
+            print(f"⚠ Playwright install output: {result.stdout}")
+            print(f"⚠ Playwright install errors: {result.stderr}")
         
         # Install system dependencies  
         deps_result = subprocess.run([
@@ -268,14 +324,14 @@ def main():
         ], capture_output=True, text=True, timeout=120)
         
         if deps_result.returncode == 0:
-            print("✅ Playwright dependencies installed")
+            print("✓ Playwright dependencies installed")
         else:
-            print(f"⚠️ Dependencies install: {deps_result.stderr}")
+            print(f"⚠ Dependencies install: {deps_result.stderr}")
             
     except subprocess.TimeoutExpired:
-        print("⚠️ Playwright installation timed out - continuing with fallbacks")
+        print("⚠ Playwright installation timed out - continuing with fallbacks")
     except Exception as e:
-        print(f"⚠️ Playwright installation error: {e}")
+        print(f"⚠ Playwright installation error: {e}")
         print("Continuing - app will use BeautifulSoup fallback extractors")
     
     # Check dependencies first
@@ -297,6 +353,8 @@ def main():
         print("Received interrupt signal")
     except Exception as e:
         print(f"Application error: {e}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
     finally:
         print("Application shutdown")
 
