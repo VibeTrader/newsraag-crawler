@@ -2,6 +2,7 @@
 """
 Azure-optimized startup script for NewsRagnarok Crawler.
 Handles the health server and main crawler in the same process.
+Version: 2.0 - Force fresh build
 """
 import os
 import sys
