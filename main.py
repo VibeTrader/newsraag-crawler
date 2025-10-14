@@ -3,6 +3,16 @@
 Enhanced main entry point for NewsRagnarok Crawler with unified source system.
 This version uses the new Phase 1 architecture with adapters and factory pattern.
 """
+
+# CRITICAL: Import Azure compatibility fixes BEFORE any other imports
+# This prevents typing_extensions/pydantic-core import issues in Azure App Service
+try:
+    import azure_compat_fix
+    print("✅ Azure compatibility fixes applied")
+except ImportError as e:
+    print(f"⚠️ Azure compatibility fix not available: {e}")
+    # Continue anyway - might work in non-Azure environments
+
 import time
 import asyncio
 import os
