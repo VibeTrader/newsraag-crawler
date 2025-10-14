@@ -1,7 +1,7 @@
-# Alternative Requirements for Azure App Service - NewsRagnarok Crawler
-# This version prioritizes Azure compatibility over latest packages
+# Minimal Azure-Compatible Requirements - NewsRagnarok Crawler
+# This avoids all complex dependency conflicts
 
-# CRITICAL: typing_extensions compatibility fix for Azure App Service
+# CRITICAL: typing_extensions compatibility
 typing_extensions>=4.8.0,<5.0.0
 
 # Core dependencies
@@ -12,9 +12,10 @@ pyyaml>=6.0.2
 requests>=2.31.0
 pytz>=2024.0
 
-# Azure-compatible Pydantic stack
-pydantic>=2.5.3,<2.10.0  # Avoid versions requiring newer typing_extensions
-pydantic-core>=2.14.0,<2.23.0  # Compatible range
+# Simple Pydantic - let pip choose compatible versions
+pydantic>=2.5.3
+# Note: Don't constrain pydantic-core - let pydantic choose its compatible version
+
 packaging>=23.0
 setuptools>=65.0.0
 
@@ -23,18 +24,13 @@ azure-core>=1.29.0
 applicationinsights>=0.11.8
 aiohttp>=3.10.5
 
-# Web scraping & parsing - Core dependencies
+# Web scraping - core only
 feedparser>=6.0.0
 beautifulsoup4>=4.13.0
 lxml>=5.3.0
 
-# OPTION A: Use older crawl4ai (recommended for Azure)
-crawl4ai>=0.6.0,<0.7.0  # Pre-0.7 doesn't require pydantic>=2.10
-
-# OPTION B: If you need crawl4ai 0.7+, use these instead:
-# crawl4ai>=0.7.0
-# pydantic>=2.10.0,<3.0.0  # Required by crawl4ai 0.7+
-# pydantic-core>=2.23.0,<3.0.0
+# Use stable crawl4ai version that doesn't cause conflicts
+crawl4ai==0.7.4  # Pin to specific working version
 
 # Browser automation
 playwright>=1.40.0
