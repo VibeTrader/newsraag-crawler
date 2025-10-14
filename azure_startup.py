@@ -58,25 +58,48 @@ try:
         print("✅ typing_extensions.Sentinel is now available!")
     else:
         print("❌ typing_extensions.Sentinel still missing")
-        # Fallback: create fake module
-        print("🔧 Creating fallback Sentinel...")
+        # Fallback: create proper callable Sentinel class
+        print("🔧 Creating callable fallback Sentinel...")
         
-        class _FakeSentinel:
+        class _CallableSentinel:
+            """Callable Sentinel class that pydantic-core expects"""
+            def __init__(self, name=None):
+                self.name = name or 'Sentinel'
+            
             def __repr__(self):
-                return '<Sentinel>'
+                return f'<{self.name}>'
+            
+            def __str__(self):
+                return f'<{self.name}>'
+                
+            def __eq__(self, other):
+                return isinstance(other, _CallableSentinel)
+                
+            def __hash__(self):
+                return hash(self.name)
         
-        typing_extensions.Sentinel = _FakeSentinel()
-        print("✅ Fallback Sentinel created")
+        # Replace the non-callable version with callable one
+        typing_extensions.Sentinel = _CallableSentinel
+        print("✅ Callable fallback Sentinel created")
         
 except ImportError as e:
     print(f"❌ typing_extensions import failed: {e}")
-    # Create a complete fake module as last resort
+    # Create a complete fake module with callable Sentinel
     import types
     fake_te = types.ModuleType('typing_extensions')
-    fake_te.Sentinel = type('Sentinel', (), {'__repr__': lambda self: '<Sentinel>'})()
-    fake_te._Sentinel = fake_te.Sentinel
+    
+    class _CallableSentinel:
+        """Callable Sentinel for complete compatibility"""
+        def __init__(self, name=None):
+            self.name = name or 'Sentinel'
+        
+        def __repr__(self):
+            return f'<{self.name}>'
+    
+    fake_te.Sentinel = _CallableSentinel
+    fake_te._Sentinel = _CallableSentinel
     sys.modules['typing_extensions'] = fake_te
-    print("✅ Created complete fake typing_extensions module")
+    print("✅ Created complete fake typing_extensions with callable Sentinel")
 
 # Step 5: Now try to import and start the application
 print("🚀 Starting NewsRagnarok Crawler...")
