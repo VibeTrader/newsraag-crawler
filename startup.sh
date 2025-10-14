@@ -18,57 +18,85 @@ echo "📁 Creating directories..."
 mkdir -p /home/site/wwwroot/data/{metrics,heartbeat,logs}
 mkdir -p /home/site/wwwroot/logs
 
-# Background initialization (non-blocking for Azure)
-echo "🔄 Starting background initialization..."
-(
-    echo "📦 Installing Playwright browsers (background)..."
-    # Install with timeout to prevent blocking
-    timeout 120 playwright install chromium --with-deps 2>/dev/null || {
-        echo "⚠️ Playwright installation timed out - continuing anyway"
-    }
-    
-    echo "🐍 Verifying Python environment..."
-    python3 -c "
-import sys, os
-print(f'✅ Python {sys.version.split()[0]}')
-print(f'✅ Working directory: {os.getcwd()}')
-print(f'✅ PYTHONPATH: {os.environ.get(\"PYTHONPATH\", \"Not set\")}')
+# CRITICAL: Fix typing_extensions compatibility BEFORE starting app
+echo "🔧 Applying typing_extensions compatibility fixes..."
+python3 -c "
+import sys
+import subprocess
+import os
 
-# Test essential imports
+# Remove Azure's conflicting paths
+paths_removed = []
+for path in sys.path.copy():
+    if '/agents/python' in path:
+        sys.path.remove(path) if path in sys.path else None
+        paths_removed.append(path)
+
+print(f'✅ Removed {len(paths_removed)} conflicting system paths')
+
+# Upgrade typing_extensions
 try:
-    import asyncio, json, time
-    print('✅ Core modules available')
+    result = subprocess.run([
+        sys.executable, '-m', 'pip', 'install', 
+        '--upgrade', '--force-reinstall', '--no-cache-dir',
+        'typing_extensions>=4.8.0'
+    ], capture_output=True, text=True, timeout=60)
+    
+    if result.returncode == 0:
+        print('✅ typing_extensions upgraded successfully')
+    else:
+        print(f'⚠️ typing_extensions upgrade warning: {result.stderr}')
+        
 except Exception as e:
-    print(f'❌ Core module error: {e}')
+    print(f'⚠️ typing_extensions upgrade failed: {e}')
 
+# Test critical imports
 try:
-    import loguru
-    print('✅ Loguru available')
-except ImportError:
-    print('⚠️ Loguru not available - using basic logging')
-" || echo "⚠️ Python environment verification issues"
+    from typing_extensions import Sentinel
+    print('✅ typing_extensions.Sentinel - OK')
+    import pydantic
+    print('✅ pydantic - OK')
+    print('🚀 Critical imports successful - ready for crawl4ai')
+except Exception as e:
+    print(f'❌ Import test failed: {e}')
+    print('⚠️ Will attempt fallback fixes during startup')
+"
 
-    # Start main application in background
-    echo "🚀 Starting main application (background)..."
-    python3 main.py 2>&1 | tee logs/app.log
-    
+# Install Playwright in background (non-blocking)
+echo "📦 Installing Playwright browsers (background)..."
+(
+    timeout 180 python3 -m playwright install chromium --with-deps 2>/dev/null || {
+        echo "⚠️ Playwright installation timed out - using BeautifulSoup fallback"
+    }
 ) &
 
-BACKGROUND_PID=$!
+PLAYWRIGHT_PID=$!
 
-echo "✅ Background initialization started (PID: $BACKGROUND_PID)"
-echo "💚 Azure App Service startup COMPLETE"
-echo "📊 Status:"
-echo "   - Health server: 🔄 Starting with main app"
-echo "   - Background init: 🔄 In progress" 
-echo "   - Ready for traffic: ✅ YES"
+# Start the main application using Azure startup script
+echo "🚀 Starting NewsRagnarok Crawler via Azure startup script..."
+python3 azure_startup.py &
+
+MAIN_PID=$!
+
+echo "✅ Application startup initiated"
+echo "📊 Process Status:"
+echo "   - Main application PID: $MAIN_PID"
+echo "   - Playwright install PID: $PLAYWRIGHT_PID"
+echo "   - Health server: Starting with main app"
 echo ""
-echo "🌐 Service endpoints:"
-echo "   - Health: http://localhost:${PORT:-8000}/"
+echo "🌐 Expected endpoints:"
+echo "   - Health check: http://localhost:${PORT:-8000}/"
 echo "   - Logs: /home/site/wwwroot/logs/"
 echo ""
-echo "⏳ Application services will initialize over next 2-5 minutes"
 
-# Wait for background process (main app includes health server)
-echo "🛡️ Monitoring application..."
-wait $BACKGROUND_PID
+# Wait for main application
+echo "🛡️ Monitoring main application..."
+wait $MAIN_PID
+
+APP_EXIT_CODE=$?
+echo "📊 Main application exited with code: $APP_EXIT_CODE"
+
+# Clean up background processes
+kill $PLAYWRIGHT_PID 2>/dev/null || true
+
+exit $APP_EXIT_CODE
