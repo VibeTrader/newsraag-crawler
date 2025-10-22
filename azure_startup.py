@@ -15,7 +15,6 @@ for path in original_path:
     if '/agents/python' in path:
         sys.path.remove(path) if path in sys.path else None
         paths_removed.append(path)
-
 print(f"✅ Removed {len(paths_removed)} conflicting system paths")
 
 # Step 2: Find and prioritize virtual environment
@@ -48,35 +47,29 @@ try:
     else:
         print(f"⚠️ typing_extensions upgrade failed: {result.stderr}")
 except Exception as e:
-    print(f"⚠️ Error upgrading typing_extensions: {e}")
+    print(f"⚠️ pip upgrade failed: {e}")
 
-# Step 4: Test the fix
+# Step 4: Create compatibility shims
 print("🧪 Testing typing_extensions import...")
 try:
     import typing_extensions
-    if hasattr(typing_extensions, 'Sentinel'):
-        print("✅ typing_extensions.Sentinel is now available!")
-    else:
+    
+    # Check if Sentinel is callable
+    try:
+        typing_extensions.Sentinel()
+        print("✅ typing_extensions.Sentinel is callable")
+    except:
         print("❌ typing_extensions.Sentinel still missing")
-        # Fallback: create proper callable Sentinel class
-        print("🔧 Creating callable fallback Sentinel...")
         
+        # Create a callable Sentinel class
+        print("🔧 Creating callable fallback Sentinel...")
         class _CallableSentinel:
-            """Callable Sentinel class that pydantic-core expects"""
+            """Callable Sentinel for compatibility"""
             def __init__(self, name=None):
                 self.name = name or 'Sentinel'
             
             def __repr__(self):
                 return f'<{self.name}>'
-            
-            def __str__(self):
-                return f'<{self.name}>'
-                
-            def __eq__(self, other):
-                return isinstance(other, _CallableSentinel)
-                
-            def __hash__(self):
-                return hash(self.name)
         
         # Replace the non-callable version with callable one
         typing_extensions.Sentinel = _CallableSentinel
@@ -111,25 +104,126 @@ try:
 except ImportError as e:
     print(f"❌ Failed to import main application: {e}")
     
-    # Fallback - run minimal health server to keep Azure happy
+    # Fallback - run minimal health server with POST support
     import time
     import json
+    import asyncio
     from http.server import HTTPServer, BaseHTTPRequestHandler
     from datetime import datetime
     
+    # Store last cleanup result
+    last_cleanup_result = {
+        "timestamp": None,
+        "status": "never_run",
+        "message": "Cleanup unavailable in fallback mode"
+    }
+    
     class MinimalHealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            response = {
-                "status": "degraded",
-                "message": "Crawler failed due to dependency conflicts",
-                "timestamp": datetime.now().isoformat(),
-                "error": str(e),
-                "fix_attempted": True
-            }
-            self.wfile.write(json.dumps(response, indent=2).encode())
+            if self.path == '/api/cleanup/status':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(last_cleanup_result, indent=2).encode())
+            elif self.path in ['/api/cleanup/health', '/health', '/']:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {
+                    "status": "degraded",
+                    "message": "Crawler failed due to dependency conflicts - running fallback server",
+                    "timestamp": datetime.now().isoformat(),
+                    "error": str(e),
+                    "fix_attempted": True,
+                    "cleanup_api": "available"
+                }
+                self.wfile.write(json.dumps(response, indent=2).encode())
+            else:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                response = {"status": "degraded", "message": "Fallback mode"}
+                self.wfile.write(json.dumps(response).encode())
+        
+        def do_POST(self):
+            """Handle POST requests for cleanup API in fallback mode."""
+            global last_cleanup_result
+            
+            if self.path == '/api/cleanup':
+                try:
+                    # Read request body
+                    content_length = int(self.headers.get('Content-Length', 0))
+                    body = self.rfile.read(content_length) if content_length > 0 else b'{}'
+                    
+                    # Parse JSON
+                    try:
+                        data = json.loads(body.decode('utf-8'))
+                        retention_hours = data.get('retention_hours', 24)
+                    except:
+                        retention_hours = 24
+                    
+                    print(f"📥 Received cleanup request in fallback mode (retention: {retention_hours} hours)")
+                    
+                    # Try to run cleanup even in fallback mode
+                    try:
+                        # Add current directory to path for imports
+                        sys.path.insert(0, '/tmp/8de11641c7f4841')
+                        
+                        # Import without going through main
+                        from cleanup_api import run_cleanup_operation
+                        
+                        # Run cleanup
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        result = loop.run_until_complete(run_cleanup_operation(retention_hours))
+                        loop.close()
+                        
+                        last_cleanup_result = result
+                        
+                        # Send response
+                        if result.get("status") == "success":
+                            self.send_response(200)
+                        else:
+                            self.send_response(500)
+                        
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps(result, indent=2).encode())
+                        
+                        print(f"✅ Cleanup completed in fallback mode: {result.get('status')}")
+                        
+                    except Exception as cleanup_error:
+                        print(f"❌ Cleanup failed in fallback mode: {cleanup_error}")
+                        import traceback
+                        traceback.print_exc()
+                        
+                        error_response = {
+                            "status": "error",
+                            "message": f"Cleanup failed in fallback mode: {str(cleanup_error)}",
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                        
+                        last_cleanup_result = error_response
+                        
+                        self.send_response(500)
+                        self.send_header('Content-type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps(error_response, indent=2).encode())
+                        
+                except Exception as e:
+                    print(f"❌ Error handling POST request: {e}")
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    error = {"error": str(e), "timestamp": datetime.utcnow().isoformat()}
+                    self.wfile.write(json.dumps(error).encode())
+            else:
+                # Unsupported POST endpoint
+                self.send_response(404)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                error = {"error": "Not Found", "path": self.path}
+                self.wfile.write(json.dumps(error).encode())
         
         def do_HEAD(self):
             self.send_response(200)
@@ -138,11 +232,14 @@ except ImportError as e:
         def log_message(self, format, *args):
             pass
     
-    print("🏥 Starting fallback health server due to import failure...")
+    print("🏥 Starting fallback health server with POST support...")
     port = int(os.environ.get('PORT', 8000))
     try:
         server = HTTPServer(('0.0.0.0', port), MinimalHealthHandler)
-        print(f"✅ Fallback health server ready on http://0.0.0.0:{port}")
+        print(f"✅ Fallback server ready on http://0.0.0.0:{port}")
+        print(f"   - GET  /health - Health check")
+        print(f"   - POST /api/cleanup - Cleanup endpoint (fallback mode)")
+        print(f"   - GET  /api/cleanup/status - Cleanup status")
         server.serve_forever()
     except Exception as server_error:
         print(f"❌ Even fallback server failed: {server_error}")
