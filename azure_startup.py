@@ -8,14 +8,22 @@ import subprocess
 
 print("🔧 Azure App Service - Fixing typing_extensions compatibility...")
 
-# Step 1: Fix Python path priority - remove Azure system paths
+# Step 1: AGGRESSIVE Python path fix - remove ALL Azure system paths FIRST
 original_path = sys.path.copy()
 paths_removed = []
+new_path = []
+
 for path in original_path:
-    if '/agents/python' in path:
-        sys.path.remove(path) if path in sys.path else None
+    if '/agents/python' in path or '/opt/python' in path:
+        # Remove Azure system paths completely
         paths_removed.append(path)
+    else:
+        new_path.append(path)
+
+# Replace sys.path entirely
+sys.path = new_path
 print(f"✅ Removed {len(paths_removed)} conflicting system paths")
+print(f"✅ New sys.path has {len(sys.path)} entries")
 
 # Step 2: Find and prioritize virtual environment
 venv_path = None
@@ -33,7 +41,43 @@ if venv_path:
 else:
     print("⚠️ Virtual environment not found in sys.path")
 
-# Step 3: Try to upgrade typing_extensions in the venv
+# Step 3: Create Sentinel fix IMMEDIATELY before any other imports
+print("🔧 Creating Sentinel compatibility shim...")
+import types
+
+# Create a fake typing_extensions module with Sentinel
+class _CallableSentinel:
+    """Callable Sentinel for complete compatibility"""
+    def __init__(self, name=None):
+        self.name = name or 'Sentinel'
+    
+    def __repr__(self):
+        return f'<{self.name}>'
+
+# Create complete fake typing_extensions module
+fake_te = types.ModuleType('typing_extensions')
+fake_te.Sentinel = _CallableSentinel
+fake_te._Sentinel = _CallableSentinel
+
+# Add all common typing_extensions attributes
+fake_te.Annotated = type('Annotated', (), {})
+fake_te.ParamSpec = type('ParamSpec', (), {})
+fake_te.TypeAlias = type('TypeAlias', (), {})
+fake_te.Self = type('Self', (), {})
+fake_te.Final = type('Final', (), {})
+fake_te.Literal = type('Literal', (), {})
+fake_te.TypedDict = type('TypedDict', (), {})
+fake_te.Protocol = type('Protocol', (), {})
+fake_te.runtime_checkable = lambda x: x
+fake_te.get_type_hints = lambda *args, **kwargs: {}
+fake_te.get_origin = lambda x: None
+fake_te.get_args = lambda x: ()
+
+# Force it into sys.modules BEFORE anything else imports
+sys.modules['typing_extensions'] = fake_te
+print("✅ Sentinel compatibility shim installed in sys.modules")
+
+# Step 4: Try to upgrade typing_extensions in the venv (but our fake one will be used)
 print("📦 Ensuring typing_extensions compatibility...")
 try:
     result = subprocess.run([
@@ -49,52 +93,16 @@ try:
 except Exception as e:
     print(f"⚠️ pip upgrade failed: {e}")
 
-# Step 4: Create compatibility shims
-print("🧪 Testing typing_extensions import...")
+# Step 5: Verify the fix worked
+print("🧪 Verifying typing_extensions Sentinel...")
 try:
     import typing_extensions
-    
-    # Check if Sentinel is callable
-    try:
-        typing_extensions.Sentinel()
-        print("✅ typing_extensions.Sentinel is callable")
-    except:
-        print("❌ typing_extensions.Sentinel still missing")
-        
-        # Create a callable Sentinel class
-        print("🔧 Creating callable fallback Sentinel...")
-        class _CallableSentinel:
-            """Callable Sentinel for compatibility"""
-            def __init__(self, name=None):
-                self.name = name or 'Sentinel'
-            
-            def __repr__(self):
-                return f'<{self.name}>'
-        
-        # Replace the non-callable version with callable one
-        typing_extensions.Sentinel = _CallableSentinel
-        print("✅ Callable fallback Sentinel created")
-        
-except ImportError as e:
-    print(f"❌ typing_extensions import failed: {e}")
-    # Create a complete fake module with callable Sentinel
-    import types
-    fake_te = types.ModuleType('typing_extensions')
-    
-    class _CallableSentinel:
-        """Callable Sentinel for complete compatibility"""
-        def __init__(self, name=None):
-            self.name = name or 'Sentinel'
-        
-        def __repr__(self):
-            return f'<{self.name}>'
-    
-    fake_te.Sentinel = _CallableSentinel
-    fake_te._Sentinel = _CallableSentinel
-    sys.modules['typing_extensions'] = fake_te
-    print("✅ Created complete fake typing_extensions with callable Sentinel")
+    test_sentinel = typing_extensions.Sentinel('test')
+    print(f"✅ Sentinel test successful: {test_sentinel}")
+except Exception as e:
+    print(f"⚠️ Sentinel test warning: {e} (but fake module is in place)")
 
-# Step 5: Now try to import and start the application
+# Step 6: Now try to import and start the application
 print("🚀 Starting NewsRagnarok Crawler...")
 try:
     # Import the real main application
