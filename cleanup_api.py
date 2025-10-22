@@ -72,11 +72,10 @@ async def run_cleanup_operation(retention_hours: int = 24) -> dict:
         pst = pytz.timezone('US/Pacific')
         cutoff_time = datetime.now(pst) - timedelta(hours=retention_hours)
         
-        # Initialize vector client
+        # Get statistics BEFORE cleanup
         vector_client = VectorClient()
         
         try:
-            # Get statistics BEFORE cleanup
             logger.info("\n📊 BEFORE CLEANUP:")
             before_stats = await vector_client.get_collection_stats()
             
@@ -92,14 +91,16 @@ async def run_cleanup_operation(retention_hours: int = 24) -> dict:
                 logger.warning("   ⚠️  Could not retrieve collection stats")
                 before_count = 0
             
-            # Perform cleanup
+            # Perform cleanup using the proven cleanup function
             logger.info(f"\n🗑️  DELETING documents older than {retention_hours} hours...")
             logger.info(f"   Cutoff time: {cutoff_time.isoformat()}")
             
-            result = await vector_client.delete_documents_older_than(retention_hours)
+            # Use the cleanup_old_data function that works in manual_cleanup.py
+            from crawler.utils.cleanup import cleanup_old_data
+            success = await cleanup_old_data(retention_hours)
             
-            if not result:
-                raise Exception("Cleanup operation returned None - operation failed")
+            if not success:
+                raise Exception("Cleanup operation failed - check logs for details")
             
             # Get statistics AFTER cleanup
             logger.info("\n📊 AFTER CLEANUP:")
