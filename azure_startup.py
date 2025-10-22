@@ -9,9 +9,10 @@ print("🔧 Azure App Service - Fixing typing_extensions compatibility...")
 
 # Step 1: FIRST - Unload any already-imported pydantic modules
 print("🧹 Cleaning up pre-imported modules...")
-modules_to_remove = [key for key in sys.modules.keys() if 'pydantic' in key or 'qdrant' in key]
+modules_to_remove = [key for key in list(sys.modules.keys()) if 'pydantic' in key or 'qdrant' in key]
 for mod in modules_to_remove:
-    del sys.modules[mod]
+    if mod in sys.modules:
+        del sys.modules[mod]
 print(f"✅ Removed {len(modules_to_remove)} pre-imported modules")
 
 # Step 2: Create Sentinel fix BEFORE anything imports
