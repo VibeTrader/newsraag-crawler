@@ -4,44 +4,17 @@ Azure startup - Fix typing_extensions compatibility for crawl4ai/pydantic
 """
 import sys
 import os
-import subprocess
 
 print("🔧 Azure App Service - Fixing typing_extensions compatibility...")
 
-# Step 1: AGGRESSIVE Python path fix - remove ALL Azure system paths FIRST
-original_path = sys.path.copy()
-paths_removed = []
-new_path = []
+# Step 1: FIRST - Unload any already-imported pydantic modules
+print("🧹 Cleaning up pre-imported modules...")
+modules_to_remove = [key for key in sys.modules.keys() if 'pydantic' in key or 'qdrant' in key]
+for mod in modules_to_remove:
+    del sys.modules[mod]
+print(f"✅ Removed {len(modules_to_remove)} pre-imported modules")
 
-for path in original_path:
-    if '/agents/python' in path or '/opt/python' in path:
-        # Remove Azure system paths completely
-        paths_removed.append(path)
-    else:
-        new_path.append(path)
-
-# Replace sys.path entirely
-sys.path = new_path
-print(f"✅ Removed {len(paths_removed)} conflicting system paths")
-print(f"✅ New sys.path has {len(sys.path)} entries")
-
-# Step 2: Find and prioritize virtual environment
-venv_path = None
-for path in sys.path:
-    if 'antenv' in path and 'site-packages' in path:
-        venv_path = path
-        break
-
-if venv_path:
-    print(f"✅ Found virtual environment: {venv_path}")
-    # Ensure venv is at the front
-    if venv_path in sys.path:
-        sys.path.remove(venv_path)
-    sys.path.insert(0, venv_path)
-else:
-    print("⚠️ Virtual environment not found in sys.path")
-
-# Step 3: Create Sentinel fix IMMEDIATELY before any other imports
+# Step 2: Create Sentinel fix BEFORE anything imports
 print("🔧 Creating Sentinel compatibility shim...")
 import types
 
@@ -77,23 +50,24 @@ fake_te.get_args = lambda x: ()
 sys.modules['typing_extensions'] = fake_te
 print("✅ Sentinel compatibility shim installed in sys.modules")
 
-# Step 4: Try to upgrade typing_extensions in the venv (but our fake one will be used)
-print("📦 Ensuring typing_extensions compatibility...")
-try:
-    result = subprocess.run([
-        sys.executable, "-m", "pip", "install", 
-        "--upgrade", "--force-reinstall", "--no-cache-dir",
-        "typing_extensions>=4.8.0"
-    ], capture_output=True, text=True, timeout=60)
-    
-    if result.returncode == 0:
-        print("✅ typing_extensions upgraded successfully")
-    else:
-        print(f"⚠️ typing_extensions upgrade failed: {result.stderr}")
-except Exception as e:
-    print(f"⚠️ pip upgrade failed: {e}")
+# Step 3: Now prioritize venv WITHOUT removing standard library paths
+venv_path = None
+for path in sys.path:
+    if 'antenv' in path and 'site-packages' in path:
+        venv_path = path
+        break
 
-# Step 5: Verify the fix worked
+if venv_path:
+    print(f"✅ Found virtual environment: {venv_path}")
+    # Move venv to front of sys.path
+    if venv_path in sys.path:
+        sys.path.remove(venv_path)
+    sys.path.insert(0, venv_path)
+    print(f"✅ Virtual environment prioritized")
+else:
+    print("⚠️ Virtual environment not found in sys.path")
+
+# Step 3: Verify the fix worked
 print("🧪 Verifying typing_extensions Sentinel...")
 try:
     import typing_extensions
@@ -102,7 +76,7 @@ try:
 except Exception as e:
     print(f"⚠️ Sentinel test warning: {e} (but fake module is in place)")
 
-# Step 6: Now try to import and start the application
+# Step 4: Now try to import and start the application
 print("🚀 Starting NewsRagnarok Crawler...")
 try:
     # Import the real main application
