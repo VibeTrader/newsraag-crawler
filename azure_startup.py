@@ -33,19 +33,52 @@ fake_te = types.ModuleType('typing_extensions')
 fake_te.Sentinel = _CallableSentinel
 fake_te._Sentinel = _CallableSentinel
 
-# Add all common typing_extensions attributes
-fake_te.Annotated = type('Annotated', (), {})
-fake_te.ParamSpec = type('ParamSpec', (), {})
-fake_te.TypeAlias = type('TypeAlias', (), {})
-fake_te.Self = type('Self', (), {})
-fake_te.Final = type('Final', (), {})
-fake_te.Literal = type('Literal', (), {})
-fake_te.TypedDict = type('TypedDict', (), {})
-fake_te.Protocol = type('Protocol', (), {})
-fake_te.TypeVarTuple = type('TypeVarTuple', (), {})  # CRITICAL - needed by aiosignal
-fake_te.Unpack = type('Unpack', (), {})
-fake_te.Required = type('Required', (), {})
-fake_te.NotRequired = type('NotRequired', (), {})
+# Create TypeVarTuple that accepts arguments like the real one
+class _TypeVarTuple:
+    def __init__(self, name, **kwargs):
+        self.name = name
+        self.__name__ = name
+    def __repr__(self):
+        return f'TypeVarTuple({self.name!r})'
+
+# Create indexable types for syntax like Annotated[str, ...], Unpack[tuple[()]], etc.
+class _IndexableType:
+    def __class_getitem__(cls, params):
+        return cls
+    def __getitem__(self, params):
+        return self
+    def __call__(self, *args, **kwargs):
+        return self
+
+# Create callable types like ParamSpec
+class _CallableType:
+    def __init__(self, *args, **kwargs):
+        pass
+    def __class_getitem__(cls, params):
+        return cls
+    def __getitem__(self, params):
+        return self
+
+# Add all common typing_extensions attributes with proper behaviors
+fake_te.Annotated = _IndexableType
+fake_te.ParamSpec = _CallableType
+fake_te.TypeAlias = _IndexableType
+fake_te.Self = _IndexableType
+fake_te.Final = _IndexableType
+fake_te.Literal = _IndexableType
+fake_te.TypedDict = _IndexableType
+fake_te.Protocol = _IndexableType
+fake_te.TypeVarTuple = _TypeVarTuple  # CRITICAL - callable with arguments
+fake_te.Unpack = _IndexableType  # CRITICAL - indexable for Unpack[tuple[()]]
+fake_te.Required = _IndexableType
+fake_te.NotRequired = _IndexableType
+fake_te.TypeGuard = _IndexableType
+fake_te.TypeVar = _CallableType
+fake_te.Generic = _IndexableType
+fake_te.ClassVar = _IndexableType
+fake_te.Union = _IndexableType
+fake_te.Optional = _IndexableType
+fake_te.Concatenate = _IndexableType
 fake_te.runtime_checkable = lambda x: x
 fake_te.get_type_hints = lambda *args, **kwargs: {}
 fake_te.get_origin = lambda x: None
