@@ -26,7 +26,6 @@ from monitoring.health_check import get_health_check
 from monitoring.duplicate_detector import get_duplicate_detector
 from monitoring.alerts import get_alert_manager, trigger_test_alert
 from monitoring.app_insights import get_app_insights
-from cleanup_api import register_cleanup_routes
 # NEW: Import unified source system
 from crawler.factories import SourceFactory, load_sources_from_yaml
 from crawler.interfaces import INewsSource, SourceType, ContentType, SourceConfig
@@ -53,9 +52,6 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 # Constants
 CRAWL_INTERVAL_SECONDS = 10800  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every day
-
-app = Flask(__name__)
-register_cleanup_routes(app)
 
 def create_all_sources_fallback():
     """
