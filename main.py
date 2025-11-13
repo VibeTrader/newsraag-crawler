@@ -37,6 +37,10 @@ from crawler.extensions.html_extensions import register_html_extensions
 # Import robust RSS parser for enhanced error handling
 from crawler.utils.robust_rss_parser import RobustRSSParser
 
+# NEW: Import SeenArticleTracker for fast duplicate detection
+from crawler.utils.seen_tracker import SeenArticleTracker
+from crawler.utils.tracker_integration import init_tracker_integration, get_tracker_integration
+
 # Import existing utilities (enhanced with memory optimization)
 from crawler.utils.dependency_checker import check_dependencies
 from crawler.utils.memory_monitor import log_memory_usage
@@ -226,6 +230,11 @@ async def process_rss_source(source_config):
 async def main_loop():
     """Enhanced main loop using unified source system."""
     logger.info("🚀 Starting NewsRagnarok main loop with unified source system...")
+    
+    # Initialize SeenArticleTracker for fast duplicate detection
+    seen_tracker = SeenArticleTracker()
+    tracker_integration = init_tracker_integration(seen_tracker)
+    logger.info(f"✅ SeenArticleTracker initialized with {len(seen_tracker.seen)} cached articles")
     
     # Load sources using new unified system
     sources = await load_unified_sources()
@@ -499,6 +508,11 @@ async def main_loop():
             logger.info("=" * 60)
             logger.info("📊 ENHANCED CRAWL CYCLE SUMMARY")
             logger.info("=" * 60)
+            
+            # Log SeenArticleTracker statistics
+            if tracker_integration:
+                tracker_integration.log_stats()
+                tracker_integration.force_save_cache()  # Save at end of each cycle
             
             # Overall statistics
             overall_success_rate = (cycle_stats['total_articles_processed'] / 

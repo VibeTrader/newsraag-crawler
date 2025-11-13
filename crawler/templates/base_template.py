@@ -267,10 +267,18 @@ class BaseContentProcessor(IContentProcessor):
         try:
             start_time = time.time()
             
+            # DEBUG: Log input content
+            print(f"🔄 Processing content: {len(content)} chars")
+            print(f"📄 Content preview: {content[:200]}...")
+            
             if self.llm_enabled and self.llm_cleaner:
                 # Use LLM cleaning
                 cleaned_content = await self._clean_with_llm(content, metadata)
                 processing_time = time.time() - start_time
+                
+                # DEBUG: Log cleaned content
+                print(f"✅ LLM cleaned: {len(content)} → {len(cleaned_content)} chars")
+                print(f"📄 Cleaned preview: {cleaned_content[:200]}...")
                 
                 return ProcessingResult(
                     success=True,
@@ -393,6 +401,12 @@ class BaseContentStorage(IContentStorage):
                 print("Vector client not available")
                 return False
             
+            # DEBUG: Log content being stored
+            from loguru import logger
+            logger.info(f"📝 Storing content for: {metadata.title[:50]}...")
+            logger.info(f"📊 Content length: {len(content)} chars")
+            logger.info(f"📄 Content preview: {content[:200]}...")
+            
             # Create output model (reuse existing structure)
             from models.output import OutputModel
             output = OutputModel(
@@ -411,21 +425,19 @@ class BaseContentStorage(IContentStorage):
             # Prepare metadata for vector storage with REAL publication date
             doc_metadata = {
                 "title": metadata.title,
+                "url": metadata.url,  # Store the actual video/tweet URL
                 "source": metadata.source_name,
                 "author": metadata.author,
                 "category": metadata.category,
                 "article_id": metadata.article_id
             }
             
-            # 🔧 CRITICAL: Store the REAL publication date, not crawl time
+            # 🔧 Store publication date in PST for consistent cleanup queries
             if metadata.published_date:
                 from loguru import logger
                 import pytz
                 
-                # Store both formats for compatibility
-                doc_metadata["publishDate"] = metadata.published_date.isoformat()
-                
-                # Also store PST version for cleanup queries
+                # Convert to PST for storage
                 if metadata.published_date.tzinfo is None:
                     utc_date = metadata.published_date.replace(tzinfo=pytz.UTC)
                 else:
@@ -435,13 +447,13 @@ class BaseContentStorage(IContentStorage):
                 pst_date = utc_date.astimezone(pst_tz)
                 doc_metadata["publishDatePst"] = pst_date.isoformat()
                 
-                logger.info(f"📅 Storing publication date: {metadata.published_date.isoformat()}")
                 logger.info(f"📅 Storing PST date: {pst_date.isoformat()}")
             else:
                 # Fallback - but this should rarely happen now
                 from datetime import datetime, timezone
-                current_time = datetime.now(timezone.utc)
-                doc_metadata["publishDate"] = current_time.isoformat()
+                import pytz
+                pst_tz = pytz.timezone('US/Pacific')
+                current_time = datetime.now(timezone.utc).astimezone(pst_tz)
                 doc_metadata["publishDatePst"] = current_time.isoformat()
                 logger.warning("⚠️ No publication date found, using current time as fallback")
             

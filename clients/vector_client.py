@@ -41,11 +41,12 @@ class VectorClient:
             retry_delay = retry_delay_base ** attempt if attempt > 0 else 0
             
             try:
-                if not text_content or len(text_content.strip()) < 50:
+                # Lower threshold for social media content (tweets/videos may have short but valuable content)
+                if not text_content or len(text_content.strip()) < 20:
                     logger.warning(f"Text content too short or empty: {len(text_content if text_content else '')} chars")
                     return {
                         "status": "error",
-                        "message": "Text content too short or empty"
+                        "message": "Text content too short or empty (minimum 20 chars)"
                     }
                 
                 if attempt > 0:

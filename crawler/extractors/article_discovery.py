@@ -103,21 +103,59 @@ class HTMLArticleDiscovery(BaseArticleDiscovery):
 
 
 class YouTubeArticleDiscovery(BaseArticleDiscovery):
-    """YouTube channel/playlist discovery."""
+    """YouTube channel/playlist discovery using RSS + Transcript API."""
     
-    async def discover_articles(self, session: aiohttp.ClientSession, max_articles: int = 10) -> List[ArticleMetadata]:
-        """Discover YouTube videos - ready for API integration."""
-        # Tomorrow someone can implement YouTube API here
-        return []
+    async def discover_articles(self, session: aiohttp.ClientSession = None, max_articles: int = 10) -> List[ArticleMetadata]:
+        """Discover YouTube videos using our YouTubeExtractor."""
+        try:
+            from .youtube_extractor import YouTubeExtractor
+            from ..interfaces import SourceConfig, SourceType, ContentType
+            
+            # Create a minimal SourceConfig for the extractor
+            config = SourceConfig(
+                name=self.config.get('name', 'youtube'),
+                source_type=SourceType.YOUTUBE,
+                content_type=ContentType.FOREX,
+                base_url=self.base_url
+            )
+            
+            extractor = YouTubeExtractor(config)
+            articles = await extractor.discover_videos(max_videos=max_articles)
+            return articles
+            
+        except Exception as e:
+            print(f"YouTube discovery failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
 
 class TwitterArticleDiscovery(BaseArticleDiscovery):
-    """Twitter timeline discovery."""
+    """Twitter timeline discovery using Nitter."""
     
-    async def discover_articles(self, session: aiohttp.ClientSession, max_articles: int = 10) -> List[ArticleMetadata]:
-        """Discover Twitter posts - ready for API integration."""
-        # Tomorrow someone can implement Twitter API here
-        return []
+    async def discover_articles(self, session: aiohttp.ClientSession = None, max_articles: int = 10) -> List[ArticleMetadata]:
+        """Discover Twitter posts using our TwitterExtractor."""
+        try:
+            from .twitter_extractor import TwitterExtractor
+            from ..interfaces import SourceConfig, SourceType, ContentType
+            
+            # Create a minimal SourceConfig for the extractor
+            config = SourceConfig(
+                name=self.config.get('name', 'twitter'),
+                source_type=SourceType.TWITTER,
+                content_type=ContentType.FOREX,
+                base_url=self.base_url
+            )
+            
+            extractor = TwitterExtractor(config)
+            articles = await extractor.discover_tweets(max_tweets=max_articles)
+            return articles
+            
+        except Exception as e:
+            print(f"Twitter discovery failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
 
 class RedditArticleDiscovery(BaseArticleDiscovery):
