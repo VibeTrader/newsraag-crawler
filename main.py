@@ -51,7 +51,7 @@ from utils.streaming_processor import create_memory_efficient_processor, process
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 
 # Constants
-CRAWL_INTERVAL_SECONDS = 3600  # Check sources every hour
+CRAWL_INTERVAL_SECONDS = 10800  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every day
 
 
