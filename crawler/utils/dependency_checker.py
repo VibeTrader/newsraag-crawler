@@ -86,5 +86,6 @@ async def check_dependencies() -> bool:
     if app_insights.enabled:
         app_insights.track_dependency_status("openai", openai_ok)
     
-    # Return overall status
-    return redis_ok and vector_ok and azure_ok
+    # Return overall status - Azure is optional, so don't require it
+    # Core requirements: Qdrant (required for storage)
+    return redis_ok and vector_ok

@@ -461,12 +461,60 @@ class BaseContentStorage(IContentStorage):
             result = await self.vector_client.add_document(content, doc_metadata)
             
             if result and result.get('status') == 'success':
-                print(f"Successfully stored article: {metadata.title[:50]}...")
+                print(f"Successfully stored article in Qdrant: {metadata.title[:50]}...")
+                
+                # Also upload to Azure Blob Storage
+                try:
+                    from crawler.utils.azure_utils import upload_json_to_azure
+                    from datetime import datetime, timezone
+                    import pytz
+                    
+                    # Prepare JSON data for blob storage
+                    blob_data = {
+                        "title": metadata.title,
+                        "content": content,
+                        "url": metadata.url,
+                        "source": metadata.source_name,
+                        "author": metadata.author,
+                        "category": metadata.category,
+                        "article_id": metadata.article_id,
+                        "publishDate": doc_metadata.get("publishDate"),
+                        "publishDatePst": doc_metadata.get("publishDatePst"),
+                        "crawled_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    
+                    # Generate blob name from article_id
+                    blob_name = f"{metadata.article_id}.json" if metadata.article_id else None
+                    
+                    # Get publish date for folder structure
+                    publish_date_pst = None
+                    if metadata.published_date:
+                        pst_tz = pytz.timezone('US/Pacific')
+                        if metadata.published_date.tzinfo is None:
+                            publish_date_pst = metadata.published_date.replace(tzinfo=pytz.UTC).astimezone(pst_tz)
+                        else:
+                            publish_date_pst = metadata.published_date.astimezone(pst_tz)
+                    
+                    # Upload to Azure Blob
+                    azure_success, azure_result = upload_json_to_azure(
+                        json_data=blob_data,
+                        blob_name=blob_name,
+                        pretty_print=True,
+                        publish_date_pst=publish_date_pst
+                    )
+                    
+                    if azure_success:
+                        logger.info(f"☁️ Also stored in Azure Blob: {azure_result}")
+                    else:
+                        logger.warning(f"⚠️ Azure Blob upload failed (non-critical): {azure_result}")
+                        
+                except Exception as azure_error:
+                    logger.warning(f"⚠️ Azure Blob upload error (non-critical): {azure_error}")
+                
                 return True
             else:
                 print(f"Failed to store article: {metadata.title[:50]}...")
                 return False
-            return success
             
         except Exception as e:
             print(f"Storage failed for article {metadata.title[:50]}...: {e}")

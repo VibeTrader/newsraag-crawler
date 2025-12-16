@@ -229,6 +229,14 @@ async def main_loop():
     """Enhanced main loop using unified source system."""
     logger.info("🚀 Starting NewsRagnarok main loop with unified source system...")
     
+    # Initialize memory optimizer for this function
+    try:
+        memory_optimizer = setup_crawler_memory_optimization()
+        logger.info("✅ Memory optimizer initialized in main_loop")
+    except Exception as e:
+        logger.warning(f"⚠️ Memory optimizer unavailable: {e}")
+        memory_optimizer = None
+    
     # Initialize SeenArticleTracker for fast duplicate detection
     seen_tracker = SeenArticleTracker()
     tracker_integration = init_tracker_integration(seen_tracker)
