@@ -26,7 +26,6 @@ from monitoring.health_check import get_health_check
 from monitoring.duplicate_detector import get_duplicate_detector
 from monitoring.alerts import get_alert_manager, trigger_test_alert
 from monitoring.app_insights import get_app_insights
-
 # NEW: Import unified source system
 from crawler.factories import SourceFactory, load_sources_from_yaml
 from crawler.interfaces import INewsSource, SourceType, ContentType, SourceConfig
@@ -36,6 +35,10 @@ from crawler.extensions.html_extensions import register_html_extensions
 
 # Import robust RSS parser for enhanced error handling
 from crawler.utils.robust_rss_parser import RobustRSSParser
+
+# NEW: Import SeenArticleTracker for fast duplicate detection
+from crawler.utils.seen_tracker import SeenArticleTracker
+from crawler.utils.tracker_integration import init_tracker_integration, get_tracker_integration
 
 # Import existing utilities (enhanced with memory optimization)
 from crawler.utils.dependency_checker import check_dependencies
@@ -53,7 +56,6 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 # Constants
 CRAWL_INTERVAL_SECONDS = 10800  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every day
-
 
 def create_all_sources_fallback():
     """
@@ -226,6 +228,19 @@ async def process_rss_source(source_config):
 async def main_loop():
     """Enhanced main loop using unified source system."""
     logger.info("🚀 Starting NewsRagnarok main loop with unified source system...")
+    
+    # Initialize memory optimizer for this function
+    try:
+        memory_optimizer = setup_crawler_memory_optimization()
+        logger.info("✅ Memory optimizer initialized in main_loop")
+    except Exception as e:
+        logger.warning(f"⚠️ Memory optimizer unavailable: {e}")
+        memory_optimizer = None
+    
+    # Initialize SeenArticleTracker for fast duplicate detection
+    seen_tracker = SeenArticleTracker()
+    tracker_integration = init_tracker_integration(seen_tracker)
+    logger.info(f"✅ SeenArticleTracker initialized with {len(seen_tracker.seen)} cached articles")
     
     # Load sources using new unified system
     sources = await load_unified_sources()
@@ -499,6 +514,11 @@ async def main_loop():
             logger.info("=" * 60)
             logger.info("📊 ENHANCED CRAWL CYCLE SUMMARY")
             logger.info("=" * 60)
+            
+            # Log SeenArticleTracker statistics
+            if tracker_integration:
+                tracker_integration.log_stats()
+                tracker_integration.force_save_cache()  # Save at end of each cycle
             
             # Overall statistics
             overall_success_rate = (cycle_stats['total_articles_processed'] / 
