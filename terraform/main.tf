@@ -2,11 +2,13 @@ locals {
   project_name = var.project_name
   environment  = var.environment
   
-  # Base tags applied to all resources
+  # Base tags applied to all resources (Policy Compliant)
   base_tags = {
-    Environment = var.environment
-    Project     = var.project_name
-    Terraform   = "true"
+    "environment"  = var.environment
+    "project"      = var.project_name
+    "created-by"   = var.created_by
+    "created-date" = var.created_date
+    "Terraform"    = "true"
   }
 }
 
@@ -15,7 +17,7 @@ data "azurerm_resource_group" "rg" {
   name = var.existing_resource_group_name
 }
 
-# ACR (Creating new registry)
+# ACR
 resource "azurerm_container_registry" "acr" {
   name                = var.container_registry_name
   resource_group_name = data.azurerm_resource_group.rg.name
@@ -23,7 +25,7 @@ resource "azurerm_container_registry" "acr" {
   sku                 = "Basic"
   admin_enabled       = true
 
-  tags = merge(local.base_tags, { service = "apiacrimage" })
+  tags = merge(local.base_tags, { "service" = "apiacrimage" })
 }
 
 # Log Analytics Workspace
@@ -34,10 +36,10 @@ resource "azurerm_log_analytics_workspace" "log" {
   sku                 = "PerGB2018"
   retention_in_days   = 30
 
-  tags = merge(local.base_tags, { service = "logging" })
+  tags = merge(local.base_tags, { "service" = "logging" })
 }
 
-# Application Insights (NEW)
+# Application Insights
 resource "azurerm_application_insights" "app" {
   name                = "appintr-${local.project_name}-${local.environment}"
   location            = data.azurerm_resource_group.rg.location
@@ -45,7 +47,7 @@ resource "azurerm_application_insights" "app" {
   workspace_id        = azurerm_log_analytics_workspace.log.id
   application_type    = "web"
 
-  tags = merge(local.base_tags, { service = "logging" })
+  tags = merge(local.base_tags, { "service" = "logging" })
 }
 
 # Container App Environment
@@ -55,7 +57,7 @@ resource "azurerm_container_app_environment" "env" {
   resource_group_name        = data.azurerm_resource_group.rg.name
   log_analytics_workspace_id = azurerm_log_analytics_workspace.log.id
 
-  tags = merge(local.base_tags, { service = "compute" })
+  tags = merge(local.base_tags, { "service" = "compute" })
 }
 
 # Container App Job
@@ -148,10 +150,7 @@ resource "azurerm_container_app_job" "job" {
         value       = var.az_container_name
       }
 
-          
-
-
-      # --- Monitoring (Now Sourced from Resource) ---
+      # --- Monitoring ---
       env {
         name        = "APPINSIGHTS_INSTRUMENTATIONKEY"
         secret_name = "appinsights-key"
@@ -163,6 +162,10 @@ resource "azurerm_container_app_job" "job" {
       env {
         name = "ApplicationInsightsAgent_EXTENSION_VERSION"
         value = "~3"
+      }
+      env {
+        name = "XDT_MicrosoftApplicationInsights_Mode"
+        value = "recommended"
       }
     }
   }
@@ -180,7 +183,6 @@ resource "azurerm_container_app_job" "job" {
     name  = "az-account-key"
     value = var.az_account_key
   }
-
 
   # Secrets from newly created resource
   secret {
@@ -203,7 +205,7 @@ resource "azurerm_container_app_job" "job" {
     value = azurerm_container_registry.acr.admin_password
   }
 
-  tags = merge(local.base_tags, { service = "api" })
+  tags = merge(local.base_tags, { "service" = "api" })
 
   lifecycle {
     ignore_changes = [

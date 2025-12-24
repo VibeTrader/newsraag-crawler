@@ -22,6 +22,19 @@ variable "location" {
   default     = "westus"
 }
 
+# Tagging variables
+variable "created_by" {
+  description = "Person or tool that created the resource"
+  type        = string
+  default     = "haripriya"
+}
+
+variable "created_date" {
+  description = "Date the resource was created"
+  type        = string
+  default     = "2025-12-24"
+}
+
 variable "container_registry_name" {
   description = "The name of the Azure Container Registry"
   type        = string
@@ -75,7 +88,7 @@ variable "azure_openai_embedding_model" {
 variable "embedding_dimension" {
   description = "Embedding Dimension"
   type        = number
-  default     = 3072 # Updating to correct default for text-embedding-3-large
+  default     = 3072
 }
 
 # Qdrant
@@ -115,6 +128,3 @@ variable "az_container_name" {
   description = "Azure Storage Container Name"
   type        = string
 }
-
-# Monitoring - AUTOMATED CREATION
-# No need for manual instrumentation key variables anymore
