@@ -15,10 +15,15 @@ data "azurerm_resource_group" "rg" {
   name = var.existing_resource_group_name
 }
 
-# ACR (Defining resources to ensure Admin User is enabled)
-data "azurerm_container_registry" "acr" {
+# ACR (Creating new registry)
+resource "azurerm_container_registry" "acr" {
   name                = var.container_registry_name
   resource_group_name = data.azurerm_resource_group.rg.name
+  location            = data.azurerm_resource_group.rg.location
+  sku                 = "Basic"
+  admin_enabled       = true
+
+  tags = merge(local.base_tags, { service = "apiacrimage" })
 }
 
 # Log Analytics Workspace
@@ -71,7 +76,7 @@ resource "azurerm_container_app_job" "job" {
   template {
     container {
       name   = "newsraag-crawler"
-      image  = "${data.azurerm_container_registry.acr.login_server}/${var.image_name}:${var.image_tag}"
+      image  = "${azurerm_container_registry.acr.login_server}/${var.image_name}:${var.image_tag}"
       cpu    = 0.5
       memory = "1.0Gi"
 
@@ -188,14 +193,14 @@ resource "azurerm_container_app_job" "job" {
   }
 
   registry {
-    server               = data.azurerm_container_registry.acr.login_server
-    username             = data.azurerm_container_registry.acr.admin_username
+    server               = azurerm_container_registry.acr.login_server
+    username             = azurerm_container_registry.acr.admin_username
     password_secret_name = "acr-password"
   }
   
   secret {
     name  = "acr-password"
-    value = data.azurerm_container_registry.acr.admin_password
+    value = azurerm_container_registry.acr.admin_password
   }
 
   tags = merge(local.base_tags, { service = "api" })
