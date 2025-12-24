@@ -138,12 +138,8 @@ resource "azurerm_container_app_job" "job" {
         value       = var.az_account_name
       }
       env {
-        name        = "AZ_ACCOUNT_KEY"
-        secret_name = "az-account-key"
-      }
-      env {
         name        = "AZ_BLOB_ACCESS_KEY"
-        secret_name = "az-account-key"
+        secret_name = "az-blob-access-key"
       }
       env {
         name        = "AZ_CONTAINER_NAME"
@@ -180,8 +176,8 @@ resource "azurerm_container_app_job" "job" {
     value = var.qdrant_api_key
   }
   secret {
-    name  = "az-account-key"
-    value = var.az_account_key
+    name  = "az-blob-access-key"
+    value = var.az_blob_access_key
   }
 
   # Secrets from newly created resource
