@@ -112,7 +112,8 @@ variable "az_account_key" {
 }
 
 variable "az_container_name" {
-  default = "dailynewsstore"
+  description = "Azure Storage Container Name"
+  type        = string
 }
 
 # Monitoring - AUTOMATED CREATION
