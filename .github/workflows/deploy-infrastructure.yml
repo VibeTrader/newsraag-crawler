@@ -1,0 +1,73 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: newsraagacr
+  RG_NAME: newsraag-crawler-rg
+  JOB_NAME: newsraag-crawler-job
+
+jobs:
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: |
+          # Get Subscription ID from the active Azure Login session
+          SUBSCRIPTION_ID=$(az account show --query id --output tsv)
+          
+          STORAGE_KEY=$(az storage account keys list \
+            --resource-group helpingtoolswithinframanage \
+            --account-name infraandautomationstore \
+            --query '[0].value' \
+            --output tsv)
+          
+          terraform init \
+            -backend-config="subscription_id=$SUBSCRIPTION_ID" \
+            -backend-config="resource_group_name=helpingtoolswithinframanage" \
+            -backend-config="storage_account_name=infraandautomationstore" \
+            -backend-config="container_name=terraformstatestore" \
+            -backend-config="key=newsraag-crawler.tfstate" \
+            -backend-config="access_key=$STORAGE_KEY"
+
+      - name: Terraform Apply
+        working-directory: ./terraform
+        env:
+          TF_VAR_image_tag: "latest" # Infra deploy doesn't care about specific tag, defaults to latest if needed
+          TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          TF_VAR_openai_base_url: ${{ vars.OPENAI_BASE_URL }}
+          TF_VAR_qdrant_url: ${{ vars.QDRANT_URL }}
+          TF_VAR_qdrant_api_key: ${{ secrets.QDRANT_API_KEY }}
+          TF_VAR_az_account_name: ${{ vars.AZ_ACCOUNT_NAME }}
+          TF_VAR_az_account_key: ${{ secrets.AZ_ACCOUNT_KEY }}
+          # Injected Configuration
+          TF_VAR_azure_openai_api_version: ${{ vars.AZURE_OPENAI_API_VERSION }}
+          TF_VAR_azure_openai_deployment: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
+          TF_VAR_azure_openai_embedding_deployment: ${{ vars.AZURE_OPENAI_EMBEDDING_DEPLOYMENT }}
+          TF_VAR_azure_openai_embedding_model: ${{ vars.AZURE_OPENAI_EMBEDDING_MODEL }}
+          TF_VAR_qdrant_collection_name: ${{ vars.QDRANT_COLLECTION_NAME }}
+          TF_VAR_az_container_name: ${{ vars.AZ_CONTAINER_NAME }}
+        run: terraform apply -auto-approve
