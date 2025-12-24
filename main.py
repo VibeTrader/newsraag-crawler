@@ -3,6 +3,10 @@
 Enhanced main entry point for NewsRagnarok Crawler with unified source system.
 This version uses the new Phase 1 architecture with adapters and factory pattern.
 """
+
+# Note: Azure compatibility fixes are handled in azure_startup.py
+# No need to import azure_compat_fix here since it may not be available in deployment
+
 import time
 import asyncio
 import os
@@ -22,7 +26,6 @@ from monitoring.health_check import get_health_check
 from monitoring.duplicate_detector import get_duplicate_detector
 from monitoring.alerts import get_alert_manager, trigger_test_alert
 from monitoring.app_insights import get_app_insights
-
 # NEW: Import unified source system
 from crawler.factories import SourceFactory, load_sources_from_yaml
 from crawler.interfaces import INewsSource, SourceType, ContentType, SourceConfig
@@ -33,11 +36,19 @@ from crawler.extensions.html_extensions import register_html_extensions
 # Import robust RSS parser for enhanced error handling
 from crawler.utils.robust_rss_parser import RobustRSSParser
 
-# Import existing utilities (unchanged)
+# NEW: Import SeenArticleTracker for fast duplicate detection
+from crawler.utils.seen_tracker import SeenArticleTracker
+from crawler.utils.tracker_integration import init_tracker_integration, get_tracker_integration
+
+# Import existing utilities (enhanced with memory optimization)
 from crawler.utils.dependency_checker import check_dependencies
 from crawler.utils.memory_monitor import log_memory_usage
 from crawler.utils.cleanup import cleanup_old_data, clear_qdrant_collection, recreate_qdrant_collection
 from crawler.health.health_server import start_health_server
+
+# NEW: Import memory optimization utilities
+from utils.memory_optimizer import get_memory_optimizer, setup_crawler_memory_optimization
+from utils.streaming_processor import create_memory_efficient_processor, process_with_memory_management
 
 # Define path to config
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
@@ -45,7 +56,6 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config', 'sources.yaml')
 # Constants
 CRAWL_INTERVAL_SECONDS = 10800  # Check sources every hour
 CLEANUP_INTERVAL_SECONDS = 86400  # Run cleanup every day
-
 
 def create_all_sources_fallback():
     """
@@ -215,9 +225,22 @@ async def process_rss_source(source_config):
     }
 
 
-async def main_loop():
+async def main_loop(single_cycle=False):
     """Enhanced main loop using unified source system."""
     logger.info("🚀 Starting NewsRagnarok main loop with unified source system...")
+    
+    # Initialize memory optimizer for this function
+    try:
+        memory_optimizer = setup_crawler_memory_optimization()
+        logger.info("✅ Memory optimizer initialized in main_loop")
+    except Exception as e:
+        logger.warning(f"⚠️ Memory optimizer unavailable: {e}")
+        memory_optimizer = None
+    
+    # Initialize SeenArticleTracker for fast duplicate detection
+    seen_tracker = SeenArticleTracker()
+    tracker_integration = init_tracker_integration(seen_tracker)
+    logger.info(f"✅ SeenArticleTracker initialized with {len(seen_tracker.seen)} cached articles")
     
     # Load sources using new unified system
     sources = await load_unified_sources()
@@ -436,18 +459,44 @@ async def main_loop():
                     # Small delay between sources to manage memory
                     await asyncio.sleep(5)
                     
-                    # Garbage collect after each source
-                    if gc and i % 2 == 1:  # Every 2 sources
-                        logger.info(f"🗑️ Performing garbage collection after source {i+1}/{len(sources)}")
-                        gc.collect()
-                        if process:
-                            logger.info(f"💾 Memory after source {i+1}: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+                    # NEW: Intelligent memory optimization (replaces manual GC)
+                    if memory_optimizer and i % 2 == 1:  # Every 2 sources
+                        should_optimize, level = memory_optimizer.should_optimize()
+                        if should_optimize:
+                            logger.info(f"🧠 Intelligent memory optimization after source {i+1}/{len(sources)}: {level}")
+                            optimization_results = memory_optimizer.optimize_memory(level)
+                            logger.info(f"💾 Memory optimization results: "
+                                       f"saved {optimization_results['memory_saved_mb']:.2f} MB "
+                                       f"in {optimization_results['optimization_time']:.2f}s")
+                        else:
+                            # Light optimization for consistency
+                            gc.collect()
+                            if process:
+                                logger.info(f"💾 Memory after source {i+1}: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+                    else:
+                        # Fallback to simple GC if optimizer not available
+                        if gc and i % 2 == 1:  # Every 2 sources
+                            logger.info(f"🗑️ Performing garbage collection after source {i+1}/{len(sources)}")
+                            gc.collect()
+                            if process:
+                                logger.info(f"💾 Memory after source {i+1}: {process.memory_info().rss / 1024 / 1024:.2f} MB")
                             
-                    # Check for excessive memory usage
-                    if process and process.memory_info().rss > 800 * 1024 * 1024:  # Over 800MB
-                        logger.warning("⚠️ Memory usage high, performing emergency cleanup")
-                        gc.collect()
-                        await asyncio.sleep(10)  # Give system time to reclaim memory
+                    # NEW: Smart emergency memory management
+                    if process:
+                        current_memory = process.memory_info().rss
+                        memory_mb = current_memory / 1024 / 1024
+                        
+                        if memory_mb > 800:  # Over 800MB
+                            logger.warning(f"⚠️ High memory usage detected: {memory_mb:.2f} MB")
+                            if memory_optimizer:
+                                logger.info("🚨 Triggering emergency memory optimization")
+                                emergency_results = memory_optimizer.optimize_memory("critical")
+                                logger.info(f"🚨 Emergency optimization completed: "
+                                           f"saved {emergency_results['memory_saved_mb']:.2f} MB")
+                            else:
+                                logger.warning("⚠️ Memory optimizer unavailable, falling back to basic cleanup")
+                                gc.collect()
+                                await asyncio.sleep(10)  # Give system time to reclaim memory
                         
                 except Exception as e:
                     logger.error(f"❌ Error processing source {source_name}: {e}")
@@ -465,6 +514,11 @@ async def main_loop():
             logger.info("=" * 60)
             logger.info("📊 ENHANCED CRAWL CYCLE SUMMARY")
             logger.info("=" * 60)
+            
+            # Log SeenArticleTracker statistics
+            if tracker_integration:
+                tracker_integration.log_stats()
+                tracker_integration.force_save_cache()  # Save at end of each cycle
             
             # Overall statistics
             overall_success_rate = (cycle_stats['total_articles_processed'] / 
@@ -489,13 +543,29 @@ async def main_loop():
                     logger.info(f"   📡 {source_name}: {result['articles_processed']}/{result['articles_discovered']} "
                                f"({source_success_rate:.1f}% success, {result['articles_skipped']} skipped)")
             
-            # Final garbage collection at end of cycle
-            if gc:
+            # NEW: Final intelligent memory optimization at end of cycle
+            if memory_optimizer:
+                logger.info("🧠 Final memory optimization at end of cycle...")
+                should_optimize, level = memory_optimizer.should_optimize()
+                final_results = memory_optimizer.optimize_memory(level if should_optimize else "soft")
+                
+                final_memory = final_results['memory_after_mb']
+                memory_saved = final_results['memory_saved_mb']
+                logger.info(f"💾 Final memory optimization: {final_memory:.2f} MB "
+                           f"(saved {memory_saved:.2f} MB in {final_results['optimization_time']:.2f}s)")
+                
+                # Log memory optimizer statistics
+                optimizer_stats = memory_optimizer.get_statistics()
+                logger.info(f"🔧 Memory Optimizer Stats: "
+                           f"{optimizer_stats['cleanup_count']} cleanups, "
+                           f"{optimizer_stats['aggressive_cleanup_count']} aggressive cleanups")
+            else:
+                # Fallback to basic garbage collection
                 logger.info("🗑️ Forcing final garbage collection at end of cycle...")
-                gc.collect()
+                collected = gc.collect()
                 if process:
                     final_memory = process.memory_info().rss / 1024 / 1024
-                    logger.info(f"💾 Memory after cycle end: {final_memory:.2f} MB")
+                    logger.info(f"💾 Memory after cycle end: {final_memory:.2f} MB (GC freed {collected} objects)")
             
             # Calculate next run time
             cycle_duration = time.monotonic() - start_time
@@ -515,7 +585,7 @@ async def main_loop():
             metrics.end_cycle(success=overall_cycle_success)
             
             # Track cycle completion in App Insights
-            if app_insights.enabled:
+                if app_insights.enabled:
                 app_insights.track_cycle_duration(cycle_duration)
                 app_insights.track_event("enhanced_cycle_completed", {
                     "cycle_id": cycle_id,
@@ -529,6 +599,16 @@ async def main_loop():
                     "overall_success_rate": str(round(overall_success_rate, 2)),
                     "unified_system": "true"
                 })
+            
+            # Check if this is a single cycle run
+            if single_cycle:
+                logger.info("🏁 Single cycle requested. Exiting...")
+                if overall_cycle_success:
+                    logger.info("✅ Cycle completed successfully.")
+                    sys.exit(0)
+                else:
+                    logger.error("❌ Cycle checked but failed/found no sources.")
+                    sys.exit(1)
             
             # Save daily metrics
             metrics.save_daily_metrics()
@@ -610,12 +690,23 @@ if __name__ == "__main__":
     parser.add_argument("--recreate-collection", action="store_true", help="Delete and recreate the Qdrant collection")
     parser.add_argument("--test-sources", action="store_true", help="Test source creation and exit")
     parser.add_argument("--list-sources", action="store_true", help="List available sources and exit")
+    parser.add_argument("--single-cycle", action="store_true", help="Run a single crawl cycle and exit (for CronJobs)")
     args = parser.parse_args()
     
     # Initialize monitoring system
     logger.info("🔍 Initializing monitoring system...")
     metrics, health_check, duplicate_detector, app_insights, alert_manager = init_monitoring()
     logger.info("✅ Monitoring system initialized successfully")
+    
+    # NEW: Initialize memory optimization system
+    logger.info("💾 Initializing memory optimization...")
+    try:
+        memory_optimizer = setup_crawler_memory_optimization()
+        logger.info("✅ Memory optimization system initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize memory optimization: {e}")
+        logger.warning("⚠️ Continuing without memory optimization")
+        memory_optimizer = None
     
     # Test Slack alerts on startup
     if os.getenv("ALERT_SLACK_ENABLED", "false").lower() == "true":
@@ -704,5 +795,5 @@ if __name__ == "__main__":
     time.sleep(2)
     
     # Run the enhanced main crawler loop
-    logger.info("🚀 Starting Enhanced NewsRagnarok Crawler...")
-    asyncio.run(main_loop())
+    logger.info(f"🚀 Starting Enhanced NewsRagnarok Crawler (Single Cycle: {args.single_cycle})...")
+    asyncio.run(main_loop(single_cycle=args.single_cycle))

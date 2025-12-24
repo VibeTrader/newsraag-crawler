@@ -1,15 +1,103 @@
-name: Run Tests
+name: NewsRaag Crawler - Enhanced Test Pipeline
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
-  workflow_dispatch:  # Allow manual triggering
+  workflow_call:  # This enables the workflow to be called by other workflows
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: false
+        default: 'all'
+        type: string
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - unit
+          - integration
+          - smoke
+          - fast
 
 jobs:
-  test:
+  # Quick smoke tests for immediate feedback
+  smoke-tests:
+    name: 🔥 Smoke Tests
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.inputs.test_type == 'smoke' || github.event.inputs.test_type == 'all' || github.event_name == 'workflow_call'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-smoke-${{ hashFiles('**/requirements*.txt') }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio pytest-mock
+        pip install -r requirements.txt
+
+    - name: Run smoke tests
+      run: |
+        python -m pytest tests/test_basic_setup.py --tb=short --no-cov -v --maxfail=3
+      env:
+        PYTHONPATH: .
+
+  # Fast tests for development workflow
+  fast-tests:
+    name: ⚡ Fast Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_type == 'fast' || github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-fast-${{ hashFiles('**/requirements*.txt') }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio pytest-mock
+        pip install -r requirements.txt
+
+    - name: Run fast tests
+      run: |
+        python -m pytest -m "not slow and not external" tests/ --tb=short --no-cov -v
+      env:
+        PYTHONPATH: .
+
+  # Comprehensive unit tests
+  unit-tests:
+    name: 🔧 Unit Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_type == 'unit' || github.event.inputs.test_type == 'all' || github.event_name == 'push' || github.event_name == 'workflow_call'
     strategy:
       matrix:
         python-version: ['3.11', '3.12']
@@ -27,92 +115,134 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt') }}
         restore-keys: |
-          ${{ runner.os }}-pip-
+          ${{ runner.os }}-pip-${{ matrix.python-version }}-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-json-report
+
+    - name: Create test directories
+      run: |
+        mkdir -p tests/logs
+        mkdir -p test_reports
+
+    - name: Run unit tests
+      run: |
+        python -m pytest tests/unit/ tests/test_basic_setup.py -m "unit or not integration" --tb=short -v \
+          --cov=crawler --cov=monitoring --cov=clients --cov=utils --cov=models \
+          --cov-report=xml --cov-report=html \
+          --junit-xml=test_reports/junit-unit-${{ matrix.python-version }}.xml
+      env:
+        PYTHONPATH: .
+        QDRANT_URL: http://localhost:6333
+        QDRANT_API_KEY: test-api-key
+        OPENAI_API_KEY: test-openai-key
+        AZURE_OPENAI_DEPLOYMENT: test-deployment
+        ALERT_SLACK_ENABLED: false
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-unit-${{ matrix.python-version }}
+        fail_ci_if_error: false
+
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: unit-test-results-${{ matrix.python-version }}
+        path: |
+          htmlcov/
+          coverage.xml
+          test_reports/
+          tests/logs/
+
+  # Integration tests
+  integration-tests:
+    name: 🔗 Integration Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_type == 'integration' || github.event.inputs.test_type == 'all' || github.event_name == 'push'
+    needs: smoke-tests
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-integration-${{ hashFiles('**/requirements*.txt') }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-html
+
+    - name: Run integration tests (no external)
+      run: |
+        python -m pytest tests/integration/ -m "integration and not external" --tb=short -v \
+          --html=test_reports/integration-report.html --self-contained-html \
+          --maxfail=10
+      env:
+        PYTHONPATH: .
+        QDRANT_URL: http://localhost:6333
+        QDRANT_API_KEY: test-api-key
+        OPENAI_API_KEY: test-openai-key
+        ALERT_SLACK_ENABLED: false
+      continue-on-error: true
+
+    - name: Upload integration test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: integration-test-results
+        path: test_reports/
+
+  # LLM functionality tests (optional)
+  llm-tests:
+    name: 🧠 LLM Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_type == 'all'
+    continue-on-error: true
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Lint with flake8 (optional)
+    - name: Run LLM tests
       run: |
-        # Install flake8 if you want linting
-        # pip install flake8
-        # flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        echo "Linting step - add flake8 if desired"
-      continue-on-error: true
-
-    - name: Run setup verification tests
-      run: |
-        python run_tests.py test tests/test_setup_verification.py
-
-    - name: Run unit tests
-      run: |
-        python run_tests.py unit
+        python -m pytest tests/llm/ -m llm --tb=short -v || echo "LLM tests may be skipped if API keys not configured"
       env:
-        # Test environment variables
-        QDRANT_URL: http://localhost:6333
-        QDRANT_API_KEY: test-api-key
-        OPENAI_API_KEY: test-openai-key
+        PYTHONPATH: .
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'test-key' }}
         AZURE_OPENAI_DEPLOYMENT: test-deployment
-        AZ_ACCOUNT_NAME: teststorage
-        AZ_ACCOUNT_KEY: test-storage-key
-        REDIS_HOST: localhost
-        REDIS_PASSWORD: test-password
-        APPINSIGHTS_INSTRUMENTATIONKEY: test-insights-key
-        ALERT_SLACK_WEBHOOK: https://hooks.slack.com/test
-        ALERT_SLACK_ENABLED: false
 
-    - name: Run integration tests (non-external)
-      run: |
-        python run_tests.py marker integration
-      env:
-        # Same test environment variables
-        QDRANT_URL: http://localhost:6333
-        QDRANT_API_KEY: test-api-key
-        OPENAI_API_KEY: test-openai-key
-        ALERT_SLACK_ENABLED: false
-      continue-on-error: true  # Allow integration tests to fail without blocking
-
-    - name: Generate coverage report
-      run: |
-        python run_tests.py coverage
-      continue-on-error: true
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        fail_ci_if_error: false
-        verbose: true
-      continue-on-error: true
-
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-results-${{ matrix.python-version }}
-        path: |
-          htmlcov/
-          coverage.xml
-          test-report.*
-
-  # Job to ensure tests pass before allowing deployment
-  test-gate:
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Tests completed successfully
-      run: |
-        echo "✅ All tests completed successfully"
-        echo "🚀 Ready for deployment"
-
-  # Optional: Security scanning
-  security:
+  # Code quality checks
+  quality-checks:
+    name: 🔍 Quality Checks
     runs-on: ubuntu-latest
     continue-on-error: true
     
@@ -120,16 +250,50 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Run Bandit Security Scan
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install quality tools
       run: |
-        pip install bandit[toml]
-        bandit -r . -f json -o bandit-report.json || true
-        bandit -r . || true
+        pip install flake8 bandit[toml] safety
+    
+    - name: Run linting
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "Linting completed"
       continue-on-error: true
     
-    - name: Upload security scan results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: security-scan-results
-        path: bandit-report.json
+    - name: Security scan
+      run: |
+        bandit -r . -ll -x tests/ || echo "Security scan completed"
+      continue-on-error: true
+    
+    - name: Dependency security check
+      run: |
+        safety check || echo "Dependency check completed"
+      continue-on-error: true
+
+  # Test completion gate
+  test-gate:
+    name: ✅ Test Gate
+    runs-on: ubuntu-latest
+    needs: [smoke-tests, unit-tests]
+    if: always() && needs.smoke-tests.result == 'success'
+    
+    steps:
+    - name: Test results summary
+      run: |
+        echo "📊 Test Pipeline Results:"
+        echo "========================"
+        echo "🔥 Smoke Tests: ${{ needs.smoke-tests.result }}"
+        echo "🔧 Unit Tests: ${{ needs.unit-tests.result }}"
+        echo "🔗 Integration Tests: ${{ needs.integration-tests.result || 'skipped' }}"
+        echo ""
+        if [ "${{ needs.smoke-tests.result }}" = "success" ] && [ "${{ needs.unit-tests.result }}" = "success" ]; then
+          echo "✅ Core tests passed - Ready for deployment!"
+          exit 0
+        else
+          echo "❌ Some tests failed - Review before deploying"
+          exit 1
+        fi

@@ -1,27 +1,41 @@
-# Phase 1: Core lightweight dependencies (install first)
+# Minimal Azure-Compatible Requirements - NewsRagnarok Crawler
+# This avoids all complex dependency conflicts
+
+# CRITICAL: typing_extensions compatibility
+typing_extensions>=4.8.0,<5.0.0
+
+# Core dependencies
+python-dateutil>=2.8.2
 python-dotenv>=1.0.0
-loguru
+loguru>=0.7.0
 pyyaml>=6.0.2
 requests>=2.31.0
 pytz>=2024.0
-pydantic>=2.11.0
+
+# Simple Pydantic - let pip choose compatible versions
+pydantic>=2.5.3
+# Note: Don't constrain pydantic-core - let pydantic choose its compatible version
+
 packaging>=23.0
 setuptools>=65.0.0
 
-# Phase 2: Essential Azure and async
+# Azure dependencies
 azure-core>=1.29.0
 applicationinsights>=0.11.8
 aiohttp>=3.10.5
 
-# Phase 3: RSS and parsing (lightweight)
+# Web scraping - core only
 feedparser>=6.0.0
 beautifulsoup4>=4.13.0
 lxml>=5.3.0
 
-# Phase 4: Heavy dependencies (install after health checks pass)
-# Uncomment gradually in deployment
-crawl4ai>=0.7.0
+# Use stable crawl4ai version that doesn't cause conflicts
+crawl4ai==0.6.3  # Pin to specific working version
+
+# Browser automation
 playwright>=1.40.0
+
+# Vector database and AI
 qdrant-client>=1.9.0
 numpy>=1.24.0
 openai>=1.0.0
@@ -29,14 +43,13 @@ azure-storage-blob>=12.25.0
 redis>=5.0.0
 azure-identity>=1.15.0
 
-# Testing dependencies (development only - comment out for production)
+# Testing dependencies  
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 pytest-mock>=3.11.0
 pytest-cov>=4.1.0
 responses>=0.23.0
 httpx>=0.24.0
-fakeredis>=2.18.0
 freezegun>=1.2.0
 factory-boy>=3.3.0
 Faker>=19.0.0
@@ -44,3 +57,7 @@ pytest-benchmark>=4.0.0
 pytest-html>=3.2.0
 pytest-json-report>=1.5.0
 parameterized>=0.9.0
+
+
+# Social media extractors
+youtube-transcript-api>=0.6.0

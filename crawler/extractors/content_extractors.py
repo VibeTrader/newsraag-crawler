@@ -77,21 +77,29 @@ class HTMLContentExtractor(BaseContentExtractor):
 
 
 class YouTubeContentExtractor(BaseContentExtractor):
-    """YouTube extractor - ready for API integration."""
+    """YouTube extractor - content already extracted in discovery phase."""
     
     async def _do_extract(self, content: str, url: str, **kwargs) -> Optional[str]:
-        """Extract YouTube video info. Override this method to add API integration."""
-        # Tomorrow someone can extend this with YouTube API
-        return f"YouTube content from: {url}"
+        """
+        For YouTube, content (transcript) is already extracted during discovery.
+        This method just passes it through.
+        """
+        # Content is already in the metadata from YouTubeExtractor
+        # Just return it as-is (it was passed via kwargs or already fetched)
+        return kwargs.get('extracted_content', content)
 
 
 class TwitterContentExtractor(BaseContentExtractor):
-    """Twitter/X extractor - ready for API integration."""
+    """Twitter extractor - content already extracted in discovery phase."""
     
     async def _do_extract(self, content: str, url: str, **kwargs) -> Optional[str]:
-        """Extract Twitter content. Override this method to add API integration."""
-        # Tomorrow someone can extend this with Twitter API
-        return f"Twitter content from: {url}"
+        """
+        For Twitter, tweet text is already extracted during discovery.
+        This method just passes it through.
+        """
+        # Content is already in the metadata from TwitterExtractor
+        # Just return it as-is
+        return kwargs.get('extracted_content', content)
 
 
 class RedditContentExtractor(BaseContentExtractor):

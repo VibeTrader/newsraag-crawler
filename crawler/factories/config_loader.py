@@ -79,7 +79,7 @@ class EnhancedConfigLoader:
                 name=name,
                 source_type=source_type,
                 content_type=content_type,
-                base_url=cls._extract_base_url(url),
+                base_url=url,  # Use full URL for Twitter/YouTube, base URL for RSS/HTML
                 rss_url=url if source_type == SourceType.RSS else None,
                 enabled=source_data.get('enabled', True),
                 rate_limit_seconds=source_data.get('rate_limit', 1),
@@ -112,6 +112,8 @@ class EnhancedConfigLoader:
             'html_scraping': SourceType.HTML_SCRAPING,  # Support both formats
             'api': SourceType.API,
             'youtube': SourceType.YOUTUBE,
+            'twitter': SourceType.TWITTER,
+            'reddit': SourceType.REDDIT,
         }
         return type_mapping.get(type_str.lower(), SourceType.RSS)
     

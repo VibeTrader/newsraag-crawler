@@ -69,9 +69,18 @@ class LLMContentCleaner:
             
         # Check if content is too long
         max_length = self.llm_config.get("max_content_length", 100000)
+        # NEW: Use environment variable for content size limit
+        max_length = min(max_length, int(os.getenv("CONTENT_MAX_SIZE", "50000")))
+        
         if len(raw_content) > max_length:
             logger.warning(f"Content too long for LLM cleaning ({len(raw_content)} chars). Truncating to {max_length} chars.")
-            raw_content = raw_content[:max_length]        
+            # Smart truncation at sentence boundary
+            truncated = raw_content[:max_length]
+            last_period = truncated.rfind('.')
+            if last_period > max_length * 0.8:  # If we can save 20% of content
+                raw_content = truncated[:last_period + 1]
+            else:
+                raw_content = truncated + "..."        
         # Check if we're within token limits
         estimated_tokens = len(raw_content.split()) * 1.5  # Rough estimate: words × 1.5
         if not self.token_tracker.can_make_request(int(estimated_tokens)):
@@ -92,8 +101,57 @@ class LLMContentCleaner:
             return None
         
         try:
+            # Detect if this is YouTube content
+            is_youtube = "youtube" in source_name.lower() or "youtube.com" in url.lower()
+            
             # Create system prompt for content cleaning
-            system_prompt = f"""
+            if is_youtube:
+                system_prompt = f"""
+You are an expert trading content extractor for NewsRagnarok. GOAL: Maximum compression, zero fluff, 100% actionable info.
+
+SOURCE: {source_name} | URL: {url}
+
+KEEP ONLY (Core Trading):
+• Strategy rules: entry/exit criteria, conditions
+• Technical: support/resistance levels, candlestick patterns, trend structure
+• Trade examples: specific prices, pips, percentages, ratios
+• Risk: stop loss/take profit levels, position sizing, R:R
+• Market structure: swing highs/lows, breakouts, reversals
+• Chart analysis with price levels
+
+REMOVE ALL:
+• Intros: "Hi/welcome/today I'll show you/if you're struggling/throughout my career"
+• Navigation: "let's go ahead/first things first/stick around"  
+• Engagement: "subscribe/like/hit bell/join course/check description"
+• Filler: "so with that being said/hopefully makes sense/sound good/got it"
+• Self-references: "as I showed/like I mentioned/remember we talked"
+• Outros: "thanks for watching/see you next/talk soon/trade green"
+• [Music], [Applause], disclaimers
+• Story telling, personal anecdotes
+• Repeated concept explanations
+
+CRITICAL RULES:
+1. Skip first 2-3 paragraphs (intro fluff)
+2. Skip last paragraph (outro)
+3. Start at FIRST trading concept mention
+4. Remove ALL questions to viewer
+5. Compress verbose phrases to direct statements
+
+OUTPUT: Trading textbook style. Zero personality. Pure education.
+
+```json
+{{
+  "title": "",
+  "author": "",  
+  "date": "",
+  "category": "",
+  "cleaned_content": "Start immediately with core trading content"
+}}
+```
+"""
+            else:
+                # Original prompt for non-YouTube content
+                system_prompt = f"""
             You are an expert financial content processor for the NewsRagnarok Crawler system.
             Your task is to clean and extract financial news content from raw markdown, removing navigation elements, 
             ads, footers, and any content not directly related to the article itself.
@@ -104,7 +162,8 @@ class LLMContentCleaner:
             1. Title
             2. Author/creator (if available)
             3. Date/time (if available)
-            4. Category/tags (if available)            
+            4. Category/tags (if available)
+            
             Then provide the cleaned article text maintaining:
             - All financial data and values
             - All market analysis
