@@ -1,9 +1,11 @@
-name: Deploy to Azure Container App Job
+name: Deploy Infrastructure
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'terraform/**'
   workflow_dispatch:
 
 permissions:
@@ -12,12 +14,12 @@ permissions:
 
 env:
   ACR_NAME: newsraagacr
-  IMAGE_NAME: newsraag-crawler
   RG_NAME: newsraag-crawler-rg
   JOB_NAME: newsraag-crawler-job
 
 jobs:
-  build-and-deploy:
+  terraform:
+    name: 'Terraform'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -27,16 +29,6 @@ jobs:
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Login to ACR
-        run: az acr login --name ${{ env.ACR_NAME }}
-
-      - name: Build and Push Docker Image
-        run: |
-          docker build -t ${{ env.ACR_NAME }.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
-          docker push ${{ env.ACR_NAME }.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} 
-          docker tag ${{ env.ACR_NAME }.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.ACR_NAME }.azurecr.io/${{ env.IMAGE_NAME }}:latest
-          docker push ${{ env.ACR_NAME }.azurecr.io/${{ env.IMAGE_NAME }}:latest
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -64,7 +56,7 @@ jobs:
       - name: Terraform Apply
         working-directory: ./terraform
         env:
-          TF_VAR_image_tag: ${{ github.sha }}
+          TF_VAR_image_tag: "latest" # Infra deploy doesn't care about specific tag, defaults to latest if needed
           TF_VAR_openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           TF_VAR_openai_base_url: ${{ vars.OPENAI_BASE_URL }}
           TF_VAR_qdrant_url: ${{ vars.QDRANT_URL }}

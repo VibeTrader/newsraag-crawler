@@ -199,4 +199,10 @@ resource "azurerm_container_app_job" "job" {
   }
 
   tags = merge(local.base_tags, { service = "api" })
+
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image
+    ]
+  }
 }

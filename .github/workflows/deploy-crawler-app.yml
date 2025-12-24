@@ -1,0 +1,65 @@
+name: Deploy Crawler App
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'terraform/**'
+      - '.github/workflows/deploy-infrastructure.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: newsraagacr
+  IMAGE_NAME: newsraag-crawler
+  RG_NAME: vibetraderCoreProduction
+  JOB_NAME: job-newsraag-crawler-prod
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          ACR_LOGIN_SERVER=$(az acr show --name ${{ env.ACR_NAME }} --query loginServer --output tsv)
+          FULL_IMAGE_NAME="$ACR_LOGIN_SERVER/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+          
+          # Build
+          docker build -t $FULL_IMAGE_NAME .
+          # Tag as latest too
+          docker tag $FULL_IMAGE_NAME "$ACR_LOGIN_SERVER/${{ env.IMAGE_NAME }}:latest"
+          
+          # Push both
+          docker push $FULL_IMAGE_NAME
+          docker push "$ACR_LOGIN_SERVER/${{ env.IMAGE_NAME }}:latest"
+          
+          # Export for next step
+          echo "FULL_IMAGE_NAME=$FULL_IMAGE_NAME" >> $GITHUB_ENV
+
+      - name: Deploy to Container App Job
+        run: |
+          echo "Deploying image ${{ env.FULL_IMAGE_NAME }} to job ${{ env.JOB_NAME }}..."
+          
+          # Update the job container image
+          az containerapp job update \
+            --name ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RG_NAME }} \
+            --image ${{ env.FULL_IMAGE_NAME }}
+            
+          echo "✅ Deployment complete"
