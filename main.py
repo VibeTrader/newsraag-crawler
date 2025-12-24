@@ -225,7 +225,7 @@ async def process_rss_source(source_config):
     }
 
 
-async def main_loop():
+async def main_loop(single_cycle=False):
     """Enhanced main loop using unified source system."""
     logger.info("🚀 Starting NewsRagnarok main loop with unified source system...")
     
@@ -585,7 +585,7 @@ async def main_loop():
             metrics.end_cycle(success=overall_cycle_success)
             
             # Track cycle completion in App Insights
-            if app_insights.enabled:
+                if app_insights.enabled:
                 app_insights.track_cycle_duration(cycle_duration)
                 app_insights.track_event("enhanced_cycle_completed", {
                     "cycle_id": cycle_id,
@@ -599,6 +599,16 @@ async def main_loop():
                     "overall_success_rate": str(round(overall_success_rate, 2)),
                     "unified_system": "true"
                 })
+            
+            # Check if this is a single cycle run
+            if single_cycle:
+                logger.info("🏁 Single cycle requested. Exiting...")
+                if overall_cycle_success:
+                    logger.info("✅ Cycle completed successfully.")
+                    sys.exit(0)
+                else:
+                    logger.error("❌ Cycle checked but failed/found no sources.")
+                    sys.exit(1)
             
             # Save daily metrics
             metrics.save_daily_metrics()
@@ -680,6 +690,7 @@ if __name__ == "__main__":
     parser.add_argument("--recreate-collection", action="store_true", help="Delete and recreate the Qdrant collection")
     parser.add_argument("--test-sources", action="store_true", help="Test source creation and exit")
     parser.add_argument("--list-sources", action="store_true", help="List available sources and exit")
+    parser.add_argument("--single-cycle", action="store_true", help="Run a single crawl cycle and exit (for CronJobs)")
     args = parser.parse_args()
     
     # Initialize monitoring system
@@ -784,5 +795,5 @@ if __name__ == "__main__":
     time.sleep(2)
     
     # Run the enhanced main crawler loop
-    logger.info("🚀 Starting Enhanced NewsRagnarok Crawler...")
-    asyncio.run(main_loop())
+    logger.info(f"🚀 Starting Enhanced NewsRagnarok Crawler (Single Cycle: {args.single_cycle})...")
+    asyncio.run(main_loop(single_cycle=args.single_cycle))

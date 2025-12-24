@@ -319,11 +319,19 @@ sudo systemctl enable newsraag-crawler
 # Environment detection
 PORT=8000  # Automatically detected
 WEBSITE_HOSTNAME=your-app.azurewebsites.net
-
-# Health checks available at:
-# https://your-app.azurewebsites.net/health
-# https://your-app.azurewebsites.net/metrics
 ```
+
+### **Azure Container Apps Jobs (Recommended for Cost Savings)**
+For periodic crawling (e.g., every 3 hours), use **Container Apps Jobs** to pay only for active execution time:
+
+1. **Deploy as a Job**:
+   - Trigger type: **Schedule**
+   - Cron expression: `0 */3 * * *` (Every 3 hours)
+   - Command override: `python main.py --single-cycle`
+
+2. **Benefits**:
+   - **Cost**: $0 when idle (sleeping).
+   - **Reliability**: Fresh container for every cycle, preventing memory leaks.
 
 ## 🔧 Development Tools
 
