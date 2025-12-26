@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  ACR_NAME: newsraagacr
+  ACR_NAME: newsraagcralweracr
   RG_NAME: newsraag-crawler-rg
   JOB_NAME: newsraag-crawler-job
 
