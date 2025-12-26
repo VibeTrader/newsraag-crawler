@@ -146,3 +146,100 @@ sources:
     content_type: economics
     headers:
       User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      
+  # ===== YOUTUBE CHANNELS (FOREX TRADING) =====
+  # Enhanced with all channels from YoutubeRagnarok + your existing channels
+  # Optimized: Channels publish 1-5 videos, crawler runs every 3 hours
+  # 15s rate limit to avoid YouTube IP blocking
+  
+  # # Original channels from newsraag-crawler
+  # - name: thetradingchannel_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/@TheTradingChannel
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: forex
+
+  # - name: tradernick_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/@TraderNick
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: forex
+
+  # - name: forexsignalstv_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/@ForexSignalsTV
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: forex
+
+  # - name: forexcom_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/@FOREXcom
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: forex
+
+  # # New channels from YoutubeRagnarok config.py
+  # - name: abc_news_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/channel/UCBi2mrWuNuyYy4gbM6fU18Q
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: news
+
+  # - name: nbc_news_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/channel/UCeY0bbntWzzVIaj2z3QigXg
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: news
+
+  # - name: usa_today_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/channel/UCP6HGa63sBC7-KHtkme-p-g
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: news
+
+  # - name: cnbc_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/channel/UCvJJ_dzjViJCoLf5uKUTwoA
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: economics
+
+  # - name: port_of_la_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/channel/UCeFhVfUYk5y6boBsN9_21jA
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: news
+
+  # - name: tradewithak_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/channel/UCWCHsT1qXt3YZiJ3e-eI8iw
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: forex
+
+  # - name: fxalexg_youtube
+  #   type: youtube
+  #   url: https://www.youtube.com/channel/UCgPeeHdxYRal0HTNeAkjqLg
+  #   rate_limit: 15
+  #   max_articles: 3
+  #   timeout: 120
+  #   content_type: forex
+
+ 

@@ -1,0 +1,45 @@
+{
+  "daily_tokens": 12398,
+  "monthly_tokens": 12398,
+  "total_tokens": 484830,
+  "daily_date": "2025-11-13",
+  "monthly_date": "2025-11",
+  "request_count": 223,
+  "last_updated": "2025-11-13T12:09:43.779909",
+  "models": {
+    "gpt-4.1-stocks": {
+      "tokens": 409533,
+      "requests": 197,
+      "types": {
+        "content_cleaning": {
+          "tokens": 409236,
+          "requests": 188
+        },
+        "health_check": {
+          "tokens": 297,
+          "requests": 9
+        }
+      }
+    },
+    "gpt-4": {
+      "tokens": 900,
+      "requests": 9,
+      "types": {
+        "test": {
+          "tokens": 900,
+          "requests": 9
+        }
+      }
+    },
+    "gpt-4.1-rag-summary": {
+      "tokens": 74397,
+      "requests": 17,
+      "types": {
+        "content_cleaning": {
+          "tokens": 74397,
+          "requests": 17
+        }
+      }
+    }
+  }
+}

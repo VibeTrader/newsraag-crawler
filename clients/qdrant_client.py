@@ -241,10 +241,87 @@ class QdrantClientWrapper:
                     if attempt < max_retries - 1:
                         continue  # Try the outer loop again
                     return None
+                
+                # ✅ CHUNKING FIX: Split large transcripts for storage
+                # Embedding model max: 8192 tokens (~6000 words)
+                # If content is too large, chunk it and store multiple points
+                max_chars = 30000  # ~6000 words = ~8000 tokens (safe limit)
+                
+                if len(text_content) > max_chars:
+                    logger.warning(f"Content too large ({len(text_content)} chars), chunking into pieces")
+                    
+                    # Chunk the content
+                    chunks = []
+                    for i in range(0, len(text_content), max_chars):
+                        chunk = text_content[i:i + max_chars]
+                        chunks.append(chunk)
+                    
+                    logger.info(f"Split into {len(chunks)} chunks")
+                    
+                    # Store each chunk separately
+                    chunk_results = []
+                    for idx, chunk in enumerate(chunks):
+                        # Generate embedding for this chunk
+                        try:
+                            chunk_response = self.openai_client.embeddings.create(
+                                model=self.openai_deployment,
+                                input=chunk
+                            )
+                            chunk_embedding = chunk_response.data[0].embedding
+                            
+                            # Prepare payload for chunk
+                            chunk_payload = {
+                                "text": chunk,  # Store full chunk
+                                "text_length": len(chunk),
+                                "chunk_index": idx,
+                                "total_chunks": len(chunks),
+                                "is_chunked": True
+                            }
+                            
+                            # Add metadata
+                            if metadata:
+                                chunk_payload.update(metadata)
+                            
+                            # Generate unique ID for chunk
+                            chunk_hash = hashlib.md5(f"{chunk[:1000]}{str(metadata)}_{idx}".encode()).hexdigest()
+                            
+                            # Upsert chunk
+                            self.client.upsert(
+                                collection_name=self.collection_name,
+                                points=[
+                                    models.PointStruct(
+                                        id=chunk_hash,
+                                        vector=chunk_embedding,
+                                        payload=chunk_payload
+                                    )
+                                ]
+                            )
+                            
+                            logger.info(f"Stored chunk {idx+1}/{len(chunks)}: {chunk_hash}")
+                            chunk_results.append(chunk_hash)
+                            
+                        except Exception as chunk_error:
+                            logger.error(f"Failed to store chunk {idx+1}: {chunk_error}")
+                    
+                    if chunk_results:
+                        logger.info(f"Successfully stored {len(chunk_results)}/{len(chunks)} chunks")
+                        return {
+                            "status": "success",
+                            "document_id": chunk_results[0],  # Return first chunk ID
+                            "message": f"Document chunked and stored ({len(chunk_results)} chunks)",
+                            "chunks": chunk_results
+                        }
+                    else:
+                        logger.error("Failed to store any chunks")
+                        return None
+                    
+                # Normal path for content under limit
                     
                 # Prepare payload
+                # Store FULL transcript (not just 1000 chars!)
+                # YouTube transcripts are 3000-5000 chars - we need all of it
                 payload = {
-                    "text": text_content[:1000],  # Limit text size in payload
+                    "text": text_content,  # ✅ Store full content
                     "text_length": len(text_content)
                 }
                 

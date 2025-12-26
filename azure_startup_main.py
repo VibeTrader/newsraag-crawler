@@ -17,11 +17,47 @@ if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
 class HealthHandler(BaseHTTPRequestHandler):
-    """HTTP handler for Azure health checks."""
+    """HTTP handler for Azure health checks with cleanup API support."""
     
     def do_GET(self):
         """Handle GET requests with application status."""
         try:
+            # Cleanup status endpoint
+            if self.path == '/api/cleanup/status':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                
+                # Get last cleanup result from cleanup_api module
+                try:
+                    from cleanup_api import last_cleanup_result
+                    self.wfile.write(json.dumps(last_cleanup_result, indent=2).encode())
+                except ImportError:
+                    fallback_result = {
+                        "timestamp": None,
+                        "status": "unavailable",
+                        "message": "Cleanup module not loaded"
+                    }
+                    self.wfile.write(json.dumps(fallback_result, indent=2).encode())
+                return
+            
+            # Cleanup health endpoint
+            if self.path == '/api/cleanup/health':
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                
+                response = {
+                    "status": "healthy",
+                    "service": "cleanup_api",
+                    "timestamp": datetime.now().isoformat()
+                }
+                self.wfile.write(json.dumps(response, indent=2).encode())
+                return
+            
+            # Default health endpoint
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Cache-Control', 'no-cache')
@@ -41,6 +77,84 @@ class HealthHandler(BaseHTTPRequestHandler):
                 "timestamp": datetime.now().isoformat()
             }
             self.wfile.write(json.dumps(error_response).encode())
+    
+    def do_POST(self):
+        """Handle POST requests for cleanup API."""
+        # Only handle cleanup endpoint
+        if self.path == '/api/cleanup':
+            try:
+                # Read request body
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length) if content_length > 0 else b'{}'
+                
+                # Parse JSON
+                try:
+                    data = json.loads(body.decode('utf-8'))
+                    retention_hours = data.get('retention_hours', 24)
+                except:
+                    retention_hours = 24
+                
+                print(f"📥 Received cleanup request (retention: {retention_hours} hours)")
+                
+                # Import and run cleanup
+                try:
+                    from cleanup_api import run_cleanup_operation
+                    
+                    # Run cleanup in event loop
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(run_cleanup_operation(retention_hours))
+                    loop.close()
+                    
+                    # Send response
+                    if result.get("status") == "success":
+                        self.send_response(200)
+                    else:
+                        self.send_response(500)
+                    
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(result, indent=2).encode())
+                    
+                    print(f"✅ Cleanup completed: {result.get('status')}")
+                    
+                except Exception as cleanup_error:
+                    print(f"❌ Cleanup failed: {cleanup_error}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    error_response = {
+                        "status": "error",
+                        "message": f"Cleanup failed: {str(cleanup_error)}",
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(error_response, indent=2).encode())
+                    
+            except Exception as e:
+                print(f"❌ Error handling POST request: {e}")
+                import traceback
+                traceback.print_exc()
+                
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                error = {
+                    "status": "error",
+                    "message": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+                self.wfile.write(json.dumps(error, indent=2).encode())
+        else:
+            # Unsupported POST endpoint
+            self.send_response(404)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            error = {"error": "Not Found", "path": self.path}
+            self.wfile.write(json.dumps(error).encode())
     
     def do_HEAD(self):
         """Handle HEAD requests from Azure health checks."""
@@ -103,17 +217,21 @@ def get_memory_usage():
         return 0.0
 
 def start_health_server():
-    """Start the health check server."""
+    """Start the health check server with cleanup API support."""
     port = int(os.environ.get('PORT', 8000))
     
     print(f"Starting health server on port {port}")
     
     try:
         server = HTTPServer(('0.0.0.0', port), HealthHandler)
-        print(f"Health server ready on http://0.0.0.0:{port}")
+        print(f"✅ Health server ready on http://0.0.0.0:{port}")
+        print(f"   - GET  /health - Health check")
+        print(f"   - POST /api/cleanup - Trigger cleanup")
+        print(f"   - GET  /api/cleanup/status - Cleanup status")
+        print(f"   - GET  /api/cleanup/health - Cleanup health")
         server.serve_forever()
     except Exception as e:
-        print(f"Failed to start health server: {e}")
+        print(f"❌ Failed to start health server: {e}")
         return False
 
 async def check_dependencies():

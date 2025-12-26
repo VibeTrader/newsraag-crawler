@@ -43,6 +43,13 @@ class ArticleMetadata:
     language: str = "en"
     tags: Optional[List[str]] = None
     
+    # Enhanced metadata from YoutubeRagnarok integration
+    content_type: str = "article"  # "article", "youtube_transcript", "tweet", etc.
+    video_id: Optional[str] = None  # For YouTube sources
+    channel_id: Optional[str] = None  # For YouTube sources
+    has_transcript: bool = False  # Flag for transcript vs description
+    duration_seconds: Optional[int] = None  # Video duration
+    
     def __post_init__(self):
         """Validate required fields."""
         if not self.title.strip():
