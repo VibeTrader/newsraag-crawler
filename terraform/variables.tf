@@ -118,7 +118,7 @@ variable "az_account_name" {
   type        = string
 }
 
-variable "az_account_key" {
+variable "az_blob_access_key" {
   description = "Azure Storage Account Key"
   type        = string
   sensitive   = true
