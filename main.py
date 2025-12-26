@@ -585,7 +585,7 @@ async def main_loop(single_cycle=False):
             metrics.end_cycle(success=overall_cycle_success)
             
             # Track cycle completion in App Insights
-                if app_insights.enabled:
+            if app_insights.enabled:
                 app_insights.track_cycle_duration(cycle_duration)
                 app_insights.track_event("enhanced_cycle_completed", {
                     "cycle_id": cycle_id,
